@@ -1,0 +1,20 @@
+# Large binary files — store locally, do not commit
+*.pdf
+*.epub
+*.djvu
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.bmp
+*.gif
+
+# Keep text-based files
+!*.md
+!*.bib
+!*.txt
+!*.csv
+
+# Keep git and config files
+!.gitignore
+!.gitkeep
