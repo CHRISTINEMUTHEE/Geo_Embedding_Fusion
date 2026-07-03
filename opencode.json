@@ -1,0 +1,69 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "*": "allow",
+    "read": {
+      "*": "allow"
+    },
+    "edit": {
+      "*": "allow",
+      "~/.ssh/**": "deny",
+      "~/.aws/**": "deny",
+      "~/.config/gcloud/**": "deny"
+    },
+    "bash": {
+      "*": "allow",
+      "sudo *": "deny",
+      "su *": "deny",
+      "*rm -rf*": "deny",
+      "*rm -r -f*": "deny",
+      "*rm -f -r*": "deny",
+      "*osascript*": "deny",
+      "*screencapture*": "deny",
+      "say *": "deny",
+      "open -a *": "deny",
+      "*networksetup*": "deny",
+      "*systemsetup*": "deny",
+      "*dscl*": "deny",
+      "*security *": "deny",
+      "*defaults write*": "deny",
+      "*pmset*": "deny",
+      "*launchctl*": "deny",
+      "*spctl*": "deny",
+      "*csrutil*": "deny",
+      "*codesign*": "deny",
+      "*hdiutil*": "deny",
+      "*sysadminctl*": "deny",
+      "*profiles *": "deny",
+      "*curl*|*sh*": "deny",
+      "*wget*|*sh*": "deny",
+      "*curl*|*bash*": "deny",
+      "*wget*|*bash*": "deny",
+      "*az storage blob delete*": "deny",
+      "*az storage container delete*": "deny",
+      "*az storage account delete*": "deny",
+      "*az ml job delete*": "deny",
+      "*az ml compute delete*": "deny",
+      "*az ml environment delete*": "deny",
+      "*az ml datastore delete*": "deny",
+      "*azcopy rm*": "deny",
+      "*azcopy remove*": "deny",
+      "git reset --hard*": "ask",
+      "git clean -fd*": "ask",
+      "docker push *": "ask",
+      "kubectl *": "ask",
+      "helm *": "ask",
+      "terraform *": "ask",
+      "pulumi *": "ask",
+      "npm publish *": "ask",
+      "twine upload *": "ask",
+      "aws *": "allow",
+      "gcloud *": "allow",
+      "az *": "allow"
+    },
+    "external_directory": {
+      "*": "allow"
+    }
+  },
+  "instructions": ["AGENTS.md"]
+}

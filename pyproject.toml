@@ -1,0 +1,62 @@
+[project]
+name = "emb2heights"
+version = "0.1.0"
+description = "A multi-task model that takes pre-computed embeddings from several geospatial foundation models and predicts sub-pixel land cover and height over France."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Christine Muthee", email = "christine.muthee@wri.org" },
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "seaborn",
+    "notebook",
+    "ipykernel",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/CHRISTINEMUTHEE/emb2heights"
+
+[project.scripts]
+emb2heights = "emb2heights.cli:main"
+
+[dependency-groups]
+dev = [
+    "ruff",
+    "ty",
+    "pytest",
+]
+release = [
+    "bump2version",
+    "build",
+    "twine",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.ty]
+python-version = "3.12"
