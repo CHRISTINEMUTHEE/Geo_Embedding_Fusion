@@ -166,6 +166,30 @@ See awesome Table~\ref{tab:table}.
 \section{Conclusion}
 Your conclusion here
 
+\section{Impact Statement}
+\label{sec:impact}
+
+Accurate maps of land cover and vertical structure have depended on high-resolution ground truth, typically from airborne LiDAR, which is expensive to acquire and scarce in many regions.
+The regions that lack this ground truth are often the same ones that are most at risk of deforestation and rapid urbanization.
+Approaches based on satellite imagery have offered an alternative in terms of coverage but are limited by coarse spatial resolution, cloud cover, low signal-to-noise ratios, and insufficient ground truths, limiting their ability to provide useful information for accurate mapping of land cover and vertical structures.
+
+Geospatial foundation models now encode freely available, globally distributed satellite imagery of varying resolutions and modalities into learned embeddings that transfer well to downstream tasks with minimal ground truth labels. While several such models exist, each encodes different signals, yet whether combining them yields better predictions remains poorly understood, as does how few labels are required to achieve a target level of accuracy.
+This work investigates both questions directly by comparing single and fused model embeddings' performance on downstream tasks of land cover mapping and height prediction.
+We also measure how many labels each of them requires to achieve a target level of accuracy.
+Methodologically, the results provide a guideline for anyone building on these models: whether fusing them gives marginal gains in performance and whether a single model suffices for our downstream task. 
+
+Beyond the scientific advance in the field of geospatial foundation models, this work could be used to offer label-efficient mapping of vegetation cover, building extent, building height and tree canopy height, the measurements beneath tracking forest loss, forest regrowth, and urban expansion over time.
+More broadly, a strong, low-label mapping method such as what we seek to provide will have its greatest value where LiDAR is scarcest, for example in biomes undergoing rapid deforestation or active restoration, such as the Amazon and the Congo Basin. It is also useful in rapidly developing urban areas that need to plan for nature-based solutions to mitigate the effects of urbanization.
+
+Our labels are currently confined to France; therefore, we cannot claim that our methodological findings are generalizable to other regions, but with more data and compute, we could perform experiments that prove cross-biome generalization for use in other critical regions.
+We therefore recommend further research in this direction to test the generalization ability of these models in other regions and also to test the use of these models for other downstream tasks.
+
+This work is not without its limitations. Fusing embeddings consumes significantly more compute and storage than using a single embedding source; therefore, measuring whether its accuracy gain justifies the additional expense is a factor we consider in the overall performance assessment of the model.
+This will guide practitioners who work under compute and storage limits and need to use stronger models.
+
+
+
+
 \section*{Acknowledgments}
 This was was supported in part by......
 
