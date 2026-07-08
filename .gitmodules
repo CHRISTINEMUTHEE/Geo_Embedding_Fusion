@@ -1,0 +1,3 @@
+[submodule "paper"]
+	path = paper
+	url = https://github.com/Akramz/paper_gfm_embeddings.git
