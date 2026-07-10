@@ -130,7 +130,7 @@ same change (see `AGENTS.md` §7).
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)
 │   ├── sources/        - Immutable raw inputs (never modify)
 │   └── wiki/           - Agent-owned wiki pages with [[cross-references]]
-├── paper/              - LaTeX paper, figures, tables, and references
+├── paper/              - LaTeX paper, figures, tables, and references (git submodule)
 └── .claude/            - Claude config: skills/, commands/, settings.json
 ```
 

@@ -1,27 +1,82 @@
 ---
-description: Draft or edit any part of the research paper (abstract, intro, methods, results, conclusion, impact statement, appendix). Use for both new prose and edits to existing paper/paper.tex content.
-allowed-tools: Read Write Edit Bash(*)
+name: write-research-paper
+description: Guidelines for writing and editing research papers. Use when asked to write, draft, structure, or edit any section of an academic or technical paper.
 ---
 
-## Scope
+# Write Research Paper
 
-Applies to `paper/paper.tex` and any section within it. Edit the `.tex` file directly — do not draft in a separate file and paste in unless the user asks for that.
+Guidelines for writing clear, rigorous research papers. Apply whenever drafting or editing any section of a paper.
 
-## Before writing
+## Paper Structure
 
-- Read the surrounding sections of `paper.tex` to match tone, tense, and terminology already in use.
-- If the section references a method, dataset, or paper covered in `knowledge_base/wiki/`, cross-link it there (see `AGENTS.md` §13) and pull facts from the wiki page rather than re-deriving them.
-- Check `knowledge_base/` for prior notes relevant to the claim being written before asserting anything about related work, datasets, or results.
+Papers follow this section order:
 
-## Writing rules
+1. **Title**
+2. **Abstract**
+3. **Introduction** — Motivation → Related Work → Gap → Contributions (bullets)
+4. **Methods** — Problem Formulation → Experiment Design
+5. **Results**
+6. **Conclusion**
+7. **Appendix** (optional)
 
-- Precise, falsifiable claims only. No unsupported superlatives ("state-of-the-art", "significantly", "novel") unless backed by a cited result or table in this paper.
-- Match the paper's existing person/tense (check nearby sections — do not switch between "we" and passive voice mid-paper).
-- Keep paragraphs short. One claim/idea per paragraph in results and impact sections.
-- Do not invent citations, numbers, or results. If a number is needed and not yet available, leave a `% TODO:` LaTeX comment instead of a placeholder value.
-- Do not fill sections with filler text (`\lipsum`, generic template prose) — replace it as content is written, remove it if not.
+## Narrative Arc
 
-## After writing
+Every paper must flow through these seven beats in order:
 
-- Run the `stop-slop` skill over any new or edited prose before treating it as done.
-- If the change adds/removes a section, check whether `\tableofcontents` or cross-references (`\ref{}`) elsewhere in the file need updating.
+1. Here's a problem.
+2. It's an interesting problem.
+3. It's unsolved.
+4. Here's my idea.
+5. My idea works (evidence).
+6. Here's how my approach compares to others.
+7. Here's how we can evolve this idea.
+
+## Writing Style
+
+- Simple, direct style a non-specialist can follow.
+- Active voice throughout.
+- Minimize abbreviations; spell out on first use, drop if used rarely.
+- Use adjectives sparingly — each must earn its place.
+- 4 pages maximum (excluding references and appendix). Cut to fit.
+
+## Section-by-Section Guidance
+
+### Abstract
+
+Answer these five questions, in this order:
+
+1. What is the problem you are solving?
+2. Why is it an interesting problem?
+3. What is the proposed solution?
+4. What did you achieve with the solution?
+5. What impact will the solution have?
+
+### Introduction
+
+- Open with the problem and why it matters.
+- In **Related Work**: survey prior approaches; cite papers with contrary claims where possible — they sharpen the gap.
+- State the gap clearly: what remains unsolved after prior work.
+- Describe your experiments in one concise paragraph.
+- End with a bullet **Contributions** list (3–5 items max).
+
+### Methods
+
+- **Problem Formulation**: define inputs, outputs, and notation precisely.
+- **Experiment Design**: datasets, baselines, metrics, and setup.
+
+### Results
+
+- Always include standard deviations or confidence intervals.
+- Explain your reasoning when interpreting results — say what numbers mean, not just what they are.
+- Reference all figures and tables inline.
+
+### Figures
+
+- Every figure needs: a descriptive caption, labeled axes, and a legend when multiple series appear.
+- Simple, high-contrast diagrams. No decorative elements.
+
+### Conclusion
+
+- Focus on **limitations** of the method — be honest and specific.
+- Describe concrete **next steps**, not vague future work.
+- Keep it to 1–2 paragraphs.
