@@ -1,215 +1,233 @@
 """
-PyTorch Lightning module for model training, validation, and testing.
+Plain PyTorch training loop for embedding -> (landcover, height) models.
 
-This module provides:
-- Base training logic for various computer vision tasks
-- Metrics tracking and logging
-- Visualization capabilities
-- Customizable loss functions
-
-Customize this file to fit your specific task and metrics needs.
-
-Resources:
-- https://torchgeo.readthedocs.io/en/latest/api/trainers.html
+Entry point: train(config) — builds loaders/model/loss/optimizer from an
+ExperimentConfig, trains with validation each epoch, saves best/last weights,
+a loss curve, and a config snapshot under outputs/<experiment_name>/.
 """
+import random
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import lightning.pytorch as pl
-from lightning.pytorch import loggers as pl_loggers
+import matplotlib
+matplotlib.use("Agg")  # save figures without a display
 import matplotlib.pyplot as plt
 import numpy as np
-from torchmetrics import MetricCollection
-from torchmetrics.classification import Precision, Recall, F1Score
-from torchmetrics.regression import MeanSquaredError, MeanAbsoluteError
+import torch
+from tqdm import tqdm
+
+from emb2heights.datasets import build_dataloaders
+from emb2heights.losses import build_loss
+from emb2heights.models import build_model
 
 
-class Task(pl.LightningModule):
-    """Abstract base class for all TorchGeo trainers.
-
-    .. versionadded:: 0.5
-    """
-
-    #: Parameters to ignore when saving hyperparameters.
-    ignore: Sequence[str] | str | None = "weights"
-
-    #: Model to train.
-    model: Any
-
-    #: Performance metric to monitor in learning rate scheduler and callbacks.
-    monitor = "val_loss"
-
-    #: Whether the goal is to minimize or maximize the performance metric to monitor.
-    mode = "min"
-
-    def __init__(self) -> None:
-        """Initialize a new BaseTask instance.
-
-        Args:
-            ignore: Arguments to skip when saving hyperparameters.
-        """
-        super().__init__()
-        self.save_hyperparameters(ignore=self.ignore)
-        self.configure_models()
-        self.configure_losses()
-        self.configure_metrics()
-
-    @abstractmethod
-    def configure_models(self) -> None:
-        """Initialize the model."""
-
-    def configure_losses(self) -> None:
-        """Initialize the loss criterion."""
-        if loss_name == "mse":
-            self.loss_fn = nn.MSELoss()
-        elif loss_name == "bce":
-            self.loss_fn = nn.BCEWithLogitsLoss()
-        elif loss_name == "ce":
-            self.loss_fn = nn.CrossEntropyLoss()
-        elif loss_name == "huber":
-            self.loss_fn = nn.HuberLoss(delta=0.7)
-        else:
-            raise ValueError(f"Unsupported loss: {loss_name}")
-
-    def configure_metrics(self) -> None:
-        """Initialize the performance metrics."""
-
-    def configure_optimizers(self):
-        """Configure optimizers and learning rate schedulers."""
-
-        if self.hparams.optimizer == "adam":
-            optimizer = torch.optim.Adam(
-                self.parameters(),
-                lr=self.hparams.learning_rate,
-                weight_decay=self.hparams.weight_decay,
-            )
-        elif self.hparams.optimizer == "adamw":
-            optimizer = torch.optim.AdamW(
-                self.parameters(),
-                lr=self.hparams.learning_rate,
-                weight_decay=self.hparams.weight_decay,
-            )
-        elif self.hparams.optimizer == "sgd":
-            optimizer = torch.optim.SGD(
-                self.parameters(),
-                lr=self.hparams.learning_rate,
-                weight_decay=self.hparams.weight_decay,
-                momentum=0.9,
-            )
-        elif self.hparams.optimizer == "rmsprop":
-            optimizer = torch.optim.RMSprop(
-                self.parameters(),
-                lr=self.hparams.learning_rate,
-                weight_decay=self.hparams.weight_decay,
-            )
-        else:
-            raise ValueError(f"Unsupported optimizer: {self.hparams.optimizer}")
-
-        # Configure scheduler
-        if self.hparams.scheduler == "cosine":
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=self.hparams.get("t_max", 10), eta_min=1e-6
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": scheduler,
-                "monitor": "val_loss",
-            }
-
-        elif self.hparams.scheduler == "plateau":
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
-                patience=self.hparams.get("patience", 10),
-                factor=self.hparams.get("factor", 0.1),
-            )
-            return {
-                "optimizer": optimizer,
-                "lr_scheduler": scheduler,
-                "monitor": "val_loss",
-            }
-
-        elif self.hparams.scheduler == "step":
-            scheduler = torch.optim.lr_scheduler.StepLR(
-                optimizer,
-                step_size=self.hparams.get("step_size", 30),
-                gamma=self.hparams.get("gamma", 0.1),
-            )
-            return {"optimizer": optimizer, "lr_scheduler": scheduler}
-
-        elif self.hparams.scheduler == "none" or self.hparams.scheduler is None:
-            return {"optimizer": optimizer}
-
-        else:
-            raise ValueError(f"Unsupported scheduler: {self.hparams.scheduler}")
-
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        """Forward pass of the model.
-
-        Args:
-            args: Arguments to pass to model.
-            kwargs: Keyword arguments to pass to model.
-
-        Returns:
-            Output of the model.
-        """
-        return self.model(*args, **kwargs)
-
-    def training_step(self, batch, batch_idx):
-
-        # Calculate loss
-        x, y = batch["image"], batch["target"]
-        y_hat = self(x)
-        loss = self.loss_fn(y_hat, y)
-
-        # Update and log metrics
-        self.train_metrics(y_hat, y)
-        self.log("train_loss", loss)
-        self.log_dict(self.train_metrics)
-
-        # Visualize training examples occasionally
-        if batch_idx % 100 == 0:
-            self.visualize_batch(x, y, y_hat, "train", batch_idx)
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-
-        # Calculate validation loss
-        x, y = batch["image"], batch["target"]
-        y_hat = self(x)
-        loss = self.loss_fn(y_hat, y)
-
-        # Update and log metrics
-        self.val_metrics(y_hat, y)
-        self.log("val_loss", loss)
-        self.log_dict(self.val_metrics)
-
-        # Visualize validation examples occasionally
-        if batch_idx == 0:
-            self.visualize_batch(x, y, y_hat, "val", self.current_epoch)
-
-    def test_step(self, batch, batch_idx):
-        # Update and log metrics
-        x, y = batch["image"], batch["target"]
-        y_hat = self(x)
-        self.test_metrics(y_hat, y)
-        self.log_dict(self.test_metrics)
-
-    def visualize_batch(self, x, y, y_hat, stage, idx):
-        # Customize this method based on your task/data
-        pass
+def get_device():
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
 
 
-def get_task(task_type, model, **kwargs):
-    """Factory function to get task by type.
+def seed_everything(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
-    Args:
-        task_type: Type of task (segmentation, regression, classification)
-        model: Model to use
-        **kwargs: Additional arguments for the task
 
-    Returns:
-        LightningModule instance
-    """
-    return Task(model, **kwargs)
+def build_optimizer(config, model):
+    opts = {
+        "adam": torch.optim.Adam,
+        "adamw": torch.optim.AdamW,
+        "sgd": torch.optim.SGD,
+    }
+    if config.optimizer not in opts:
+        raise ValueError(f"Unsupported optimizer: {config.optimizer}")
+    kwargs = dict(lr=config.learning_rate, weight_decay=config.weight_decay)
+    if config.optimizer == "sgd":
+        kwargs["momentum"] = 0.9
+    return opts[config.optimizer](model.parameters(), **kwargs)
+
+
+def build_scheduler(config, optimizer):
+    if config.scheduler == "plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, patience=config.patience, factor=config.factor)
+    if config.scheduler == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, T_max=config.epochs, eta_min=1e-6)
+    if config.scheduler == "step":
+        return torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=config.step_size, gamma=config.gamma)
+    if config.scheduler in ("none", None):
+        return None
+    raise ValueError(f"Unsupported scheduler: {config.scheduler}")
+
+
+# ---------------------------------------------------------
+# Evaluation (challenge-style metrics)
+# ---------------------------------------------------------
+def binary_iou_from_channel(pred, target, threshold=0.1, eps=1e-6):
+    """pred, target: [B, H, W] fraction maps; IoU of the thresholded masks."""
+    pred_mask = pred > threshold
+    target_mask = target > threshold
+    intersection = (pred_mask & target_mask).sum().float()
+    union = (pred_mask | target_mask).sum().float()
+    if union == 0:
+        return torch.tensor(float("nan"), device=pred.device)
+    return (intersection + eps) / (union + eps)
+
+
+def masked_rmse(pred_height, true_height, mask):
+    """RMSE in meters over pixels where mask is True."""
+    if mask.sum() == 0:
+        return torch.tensor(float("nan"), device=pred_height.device)
+    return torch.sqrt(torch.mean((pred_height[mask] - true_height[mask]) ** 2))
+
+
+# REVIEW REQUIRED
+def evaluate_metrics(model, val_loader, device, height_norm, threshold=0.1):
+    model.eval()
+    scores = {k: [] for k in ["iou_building", "iou_vegetation", "iou_water",
+                              "rmse_building", "rmse_vegetation"]}
+    with torch.no_grad():
+        for imgs, targets in val_loader:
+            imgs, targets = imgs.to(device), targets.to(device)
+            outputs = model(imgs)
+
+            pred = torch.clamp(outputs[:, :3], 0, 1)
+            true = torch.clamp(targets[:, :3], 0, 1)
+            ## channel 3 is height, stored normalized -> back to meters
+            pred_height = outputs[:, 3] * height_norm
+            true_height = targets[:, 3] * height_norm
+
+            scores["iou_building"].append(binary_iou_from_channel(pred[:, 0], true[:, 0], threshold))
+            scores["iou_vegetation"].append(binary_iou_from_channel(pred[:, 1], true[:, 1], threshold))
+            scores["iou_water"].append(binary_iou_from_channel(pred[:, 2], true[:, 2], threshold))
+            scores["rmse_building"].append(masked_rmse(pred_height, true_height, true[:, 0] > threshold))
+            scores["rmse_vegetation"].append(masked_rmse(pred_height, true_height, true[:, 1] > threshold))
+
+    return {k: torch.nanmean(torch.stack(v)).item() for k, v in scores.items()}
+
+
+def visualize_results(model, dataset, config, device, num_samples=10):
+    """Side-by-side true vs predicted maps for a few random samples."""
+    model.eval()
+    indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
+    target_names = ["% Building", "% Vegetation", "% Water", "nDSM Height (m)"]
+    h_norm = config.height_normalization_constant
+
+    with torch.no_grad():
+        for i, idx in enumerate(indices):
+            img_tensor, target_tensor = dataset[idx]
+            output = model(img_tensor.unsqueeze(0).to(device))
+            pred = output.squeeze(0).cpu().numpy()
+            true = target_tensor.numpy()
+
+            pred[3] *= h_norm
+            true[3] *= h_norm
+
+            fig, axs = plt.subplots(2, 4, figsize=(20, 10))
+            for c in range(4):
+                vmin, vmax = (0, 1) if c < 3 else (0, h_norm)
+                axs[0, c].imshow(true[c], vmin=vmin, vmax=vmax)
+                axs[0, c].set_title(f"True {target_names[c]}")
+                axs[0, c].axis("off")
+                axs[1, c].imshow(pred[c], vmin=vmin, vmax=vmax)
+                axs[1, c].set_title(f"Predicted {target_names[c]}")
+                axs[1, c].axis("off")
+            plt.suptitle(f"Sample {i + 1} - True vs Predicted")
+            plt.savefig(config.viz_output_dir / f"visualization_{i}.png")
+            plt.close(fig)
+
+
+def _run_epoch(model, loader, criterion, device, optimizer=None, desc=""):
+    """One pass over loader. Trains if optimizer is given, else evaluates."""
+    training = optimizer is not None
+    model.train() if training else model.eval()
+    total_loss, samples_seen = 0.0, 0
+
+    progress = tqdm(loader, desc=desc, leave=False)
+    with torch.enable_grad() if training else torch.no_grad():
+        for images, targets in progress:
+            images, targets = images.to(device), targets.to(device)
+            outputs = model(images)
+            loss = criterion(outputs, targets)
+
+            if training:
+                optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+
+            total_loss += loss.item() * images.size(0)
+            samples_seen += images.size(0)
+            progress.set_postfix(loss=f"{total_loss / samples_seen:.4f}")
+
+    return total_loss / max(1, samples_seen)
+
+
+# REVIEW REQUIRED
+## Main entry point: config -> trained model + artifacts in outputs/<experiment_name>/
+def train(config):
+    seed_everything(config.random_seed)
+    device = get_device()
+    config.make_dirs()
+    config.save()
+
+    train_loader, val_loader = build_dataloaders(config)
+
+    ## Infer input channels from the data (AlphaEarth=64, Tessera=128, ...)
+    sample_img, _ = train_loader.dataset[0]
+    n_channels = sample_img.shape[0]
+    model = build_model(config, n_channels).to(device)
+    print(f"Device: {device} | Model: {config.model_name} "
+          f"({n_channels} in-channels, {config.n_classes} out-channels)")
+
+    criterion = build_loss(config)
+    optimizer = build_optimizer(config, model)
+    scheduler = build_scheduler(config, optimizer)
+
+    train_losses, val_losses = [], []
+    best_val_loss = float("inf")
+
+    for epoch in range(1, config.epochs + 1):
+        desc = f"Epoch {epoch}/{config.epochs}"
+        train_loss = _run_epoch(model, train_loader, criterion, device, optimizer, desc + " [train]")
+        val_loss = _run_epoch(model, val_loader, criterion, device, desc=desc + " [val]")
+        train_losses.append(train_loss)
+        val_losses.append(val_loss)
+
+        if scheduler is not None:
+            if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                scheduler.step(val_loss)
+            else:
+                scheduler.step()
+
+        print(f"{desc} - train MAE: {train_loss:.4f} - val MAE: {val_loss:.4f}")
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save(model.state_dict(), config.best_model_path)
+            print(f"  New best (val {val_loss:.4f}) -> {config.best_model_path}")
+
+        if epoch % 10 == 0:
+            metrics = evaluate_metrics(model, val_loader, device,
+                                       config.height_normalization_constant)
+            print("  Challenge-style evaluation:")
+            for name, value in metrics.items():
+                print(f"    {name}: {value:.4f}")
+
+    torch.save(model.state_dict(), config.last_model_path)
+
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label="Train Loss")
+    plt.plot(val_losses, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("MAE")
+    plt.legend()
+    plt.savefig(config.loss_curve_path)
+    plt.close()
+
+    visualize_results(model, val_loader.dataset, config, device)
+    print(f"Artifacts saved under {config.experiment_dir}")
+    return model, {"train_losses": train_losses, "val_losses": val_losses,
+                   "best_val_loss": best_val_loss}

@@ -1,46 +1,99 @@
+"""
+Experiment configuration.
+
+One pydantic model = one experiment. Values come from a YAML file in configs/,
+optionally overridden by CLI flags (see scripts/train.py). Derived paths are
+computed properties so they always follow experiment_name.
+"""
 from enum import Enum
-from typing import List, Optional, Union
 from pathlib import Path
-from pydantic import BaseModel, field_validator
+from typing import List, Optional
+
+import yaml
+from pydantic import BaseModel
 
 
-class DataSourceEnum(str, Enum):
-    """Supported data sources."""
-
-    csv = "csv"
-    parquet = "parquet"
-    database = "database"
+## Closed set of choices only. Adding a model = value here + branch in models.build_model.
+class ModelNameEnum(str, Enum):
+    lightunet = "lightunet"
 
 
 class ExperimentConfig(BaseModel):
-    """Base configuration for data science experiments."""
-
-    # Project params
+    # Experiment identity
     experiment_name: str
-    data_source: DataSourceEnum = DataSourceEnum.csv
-    input_paths: Union[str, List[str]]
-    output_dir: str = "outputs/"
+    base_dir: str = "outputs"
 
-    # Compute params
+    # Data locations (embeddings + matching label rasters)
+    train_embeddings_dir: str
+    train_targets_dir: str
+    test_embeddings_dir: Optional[str] = None
+
+    # Model
+    model_name: ModelNameEnum = ModelNameEnum.lightunet
+    ## n_channels is NOT configured: it is inferred from the embedding files at
+    ## runtime (AlphaEarth=64, Tessera=128, ...), so config can't disagree with data.
+    n_classes: int = 4  # building %, vegetation %, water %, nDSM height
+    height_normalization_constant: float = 30.0  # heights are meters, typical max ~30
+
+    # Training
+    batch_size: int = 32
+    patch_size: int = 128
+    num_workers: int = 4
+    epochs: int = 30
+    learning_rate: float = 2e-4
+    weight_decay: float = 1e-4
+    val_split: float = 0.2
     random_seed: int = 42
-    n_jobs: int = -1
 
-    # Optional ML specific params
-    batch_size: Optional[int] = None
-    learning_rate: Optional[float] = None
-    max_epochs: Optional[int] = None
+    # Optimizer / scheduler
+    optimizer: str = "adam"          # adam | adamw | sgd
+    scheduler: str = "plateau"       # plateau | cosine | step | none
+    patience: int = 10               # plateau
+    factor: float = 0.1              # plateau
+    step_size: int = 30              # step
+    gamma: float = 0.1               # step
 
-    @field_validator("input_paths")
-    def validate_input_paths(cls, paths):
-        if isinstance(paths, str):
-            paths = [paths]
-        for p in paths:
-            if not Path(p).exists():
-                raise ValueError(f"Path does not exist: {p}")
-        return paths
+    # Loss weights [MAE, SSIM, Gradient, Tversky] — only MAE used until losses.py grows
+    lambdas: List[float] = [1.0, 0.5, 0.5, 2.0]
 
-    @field_validator("output_dir")
-    def validate_output_dir(cls, path):
-        out_dir = Path(path)
-        out_dir.mkdir(parents=True, exist_ok=True)
-        return str(out_dir)
+    ## Derived paths: everything lands under outputs/<experiment_name>/
+    @property
+    def experiment_dir(self) -> Path:
+        return Path(self.base_dir) / self.experiment_name
+
+    @property
+    def viz_output_dir(self) -> Path:
+        return self.experiment_dir / "visualizations"
+
+    @property
+    def best_model_path(self) -> Path:
+        return self.experiment_dir / "best_model.pth"
+
+    @property
+    def last_model_path(self) -> Path:
+        return self.experiment_dir / "last_model.pth"
+
+    @property
+    def loss_curve_path(self) -> Path:
+        return self.experiment_dir / "loss_curve.png"
+
+    @property
+    def config_log_path(self) -> Path:
+        return self.experiment_dir / "config.yaml"
+
+    def make_dirs(self) -> None:
+        self.viz_output_dir.mkdir(parents=True, exist_ok=True)
+
+    def save(self) -> None:
+        """Snapshot the config next to the experiment outputs for reproducibility."""
+        with open(self.config_log_path, "w") as f:
+            yaml.safe_dump(self.model_dump(mode="json"), f, sort_keys=False)
+
+
+def load_config(yaml_path: str, overrides: Optional[dict] = None) -> ExperimentConfig:
+    """Load a YAML experiment file, then apply non-None CLI overrides."""
+    with open(yaml_path) as f:
+        cfg = yaml.safe_load(f)
+    if overrides:
+        cfg.update({k: v for k, v in overrides.items() if v is not None})
+    return ExperimentConfig(**cfg)

@@ -50,8 +50,10 @@ When designing experiments, distinguish between:
 
 Group your hyperparameters by the above categories in the YAML files.
 
-To find optimal values for nuisance hyperparameters, use the hyperparameter search mode:
+To test nuisance hyperparameters quickly, override them from the CLI without a new file:
 
 ```bash
-python scripts/train.py --config configs/0_baselines/0_simple_baseline.yaml --search_mode --n_trials 20 --lr_range 1e-5,1e-2
+python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml --learning_rate 1e-3 --batch_size 16
 ```
+
+(Automated Optuna search was removed with the old template `train.py`; re-add when needed.)
