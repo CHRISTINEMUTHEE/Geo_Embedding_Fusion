@@ -68,6 +68,9 @@ def find_embedding_files(emb_dir):
 # 1:1 spatial resolution (e.g. 256x256 -> 256x256)
 # ---------------------------------------------------------
 # REVIEW REQUIRED
+## KNOWN FLAW: embeddings are int8-quantized (values +/-127, nodata -128) and are NOT
+## dequantized here, and nan_to_num maps NaN to 0.0 -- indistinguishable from a real
+## embedding value. Kept for baseline reproducibility; datamodule.py fixes both.
 class PixelEmbeddingsDataset(Dataset):
     def __init__(self, file_pairs, patch_size=128, is_train=True, height_norm=30.0):
         self.file_pairs = file_pairs
@@ -123,6 +126,8 @@ class PixelEmbeddingsDataset(Dataset):
 
 # REVIEW REQUIRED
 ## Config -> (train_loader, val_loader). Replaces the old Lightning DataModule.
+## KNOWN FLAW: the split is random over tiles, so tiles from the same region land in both
+## train and val (geographic leakage). Use Embed2HeightsDataModule for a region-grouped split.
 def build_dataloaders(config):
     pairs = find_file_pairs(config.train_embeddings_dir, config.train_targets_dir)
     if len(pairs) == 0:

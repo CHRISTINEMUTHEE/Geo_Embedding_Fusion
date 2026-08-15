@@ -24,6 +24,7 @@ Content catalog for the knowledge base. The agent reads this file first when ans
 
 ## Datasets
 
+- [embed2heights (ESA Φ-lab challenge)](wiki/datasets/embed2heights.md) — The dataset this project trains on: 4 GFM embeddings + nDSM/land-cover labels; no georeferencing, int8-quantized
 - [ESA WorldCover 2020](wiki/datasets/esa_worldcover.md) — Global 10m, 11-class land cover reference
 - [French DSM, Nouvelle-Aquitaine](wiki/datasets/french_dsm_nouvelle_aquitaine.md) — AlphaEarth + IGN RGE ALTI DSM, France
 - [Danum Valley Canopy Height](wiki/datasets/danum_valley_canopy_height.md) — Airborne LiDAR canopy height, Borneo tropical forest

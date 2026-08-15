@@ -7,7 +7,24 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 - `train.py`: Train models using configuration files (see `emb2heights/trainers.py`)
 - `evaluate.py`: Evaluate trained models on test data (template, not yet adapted)
 - `infer.py`: Run inference (template, not yet adapted)
-- `acquire.py`: Data acquisition (template, not yet adapted)
+- `acquire.py`: Download the **full** dataset from EOTDL (110+ GB; needs an EOTDL login and a
+  pre-staged catalog at `~/.cache/eotdl/datasets/embed2heights/catalog.v1.parquet`)
+- `acquire_subset.py`: Download a **<1% region-balanced subset** (~1.4 GB) from the public
+  Hugging Face mirror. No login required. This is the one to use for local development.
+
+## Acquiring Data
+
+`acquire_subset.py` samples whole regions (the only geographic grouping the dataset exposes),
+downloads them, and writes a `manifest.csv` with per-tile QC:
+
+```bash
+python scripts/acquire_subset.py --dry-run     # show selection and size, download nothing
+python scripts/acquire_subset.py --limit 6     # quick smoke test
+python scripts/acquire_subset.py               # full subset -> data/subset/
+```
+
+Settings are pinned in `configs/data/subset_alphaearth.yaml`. Add `--sources alphaearth tessera`
+to pull TESSERA embeddings for the same tiles.
 
 ## Training Models
 
