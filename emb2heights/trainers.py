@@ -139,6 +139,20 @@ def visualize_results(model, dataset, config, device, num_samples=10):
             plt.close(fig)
 
 
+def plot_height_rmse_vs_labels(labels_seen, rmse_building, rmse_vegetation, path):
+    """Val height RMSE (m) vs cumulative training labels (tiles) seen so far."""
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(labels_seen, rmse_building, marker="o", label="Building height RMSE")
+    ax.plot(labels_seen, rmse_vegetation, marker="s", label="Vegetation height RMSE")
+    ax.set_xlabel("Training labels seen (tiles)")
+    ax.set_ylabel("Height RMSE (m) — lower is better")
+    ax.set_title("Height accuracy vs training labels")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def _run_epoch(model, loader, criterion, device, optimizer=None, desc=""):
     """One pass over loader. Trains if optimizer is given, else evaluates."""
     training = optimizer is not None
@@ -187,7 +201,9 @@ def train(config):
     scheduler = build_scheduler(config, optimizer)
 
     train_losses, val_losses = [], []
+    labels_seen, height_rmse_building, height_rmse_vegetation = [], [], []
     best_val_loss = float("inf")
+    n_train = len(train_loader.dataset)
 
     for epoch in range(1, config.epochs + 1):
         desc = f"Epoch {epoch}/{config.epochs}"
@@ -209,9 +225,15 @@ def train(config):
             torch.save(model.state_dict(), config.best_model_path)
             print(f"  New best (val {val_loss:.4f}) -> {config.best_model_path}")
 
+        metrics = evaluate_metrics(model, val_loader, device,
+                                   config.height_normalization_constant)
+        labels_seen.append(epoch * n_train)
+        height_rmse_building.append(metrics["rmse_building"])
+        height_rmse_vegetation.append(metrics["rmse_vegetation"])
+        print(f"  Height RMSE (m): building={metrics['rmse_building']:.3f}, "
+              f"vegetation={metrics['rmse_vegetation']:.3f}")
+
         if epoch % 10 == 0:
-            metrics = evaluate_metrics(model, val_loader, device,
-                                       config.height_normalization_constant)
             print("  Challenge-style evaluation:")
             for name, value in metrics.items():
                 print(f"    {name}: {value:.4f}")
@@ -227,7 +249,13 @@ def train(config):
     plt.savefig(config.loss_curve_path)
     plt.close()
 
+    plot_height_rmse_vs_labels(labels_seen, height_rmse_building, height_rmse_vegetation,
+                               config.height_curve_path)
+
     visualize_results(model, val_loader.dataset, config, device)
     print(f"Artifacts saved under {config.experiment_dir}")
     return model, {"train_losses": train_losses, "val_losses": val_losses,
-                   "best_val_loss": best_val_loss}
+                   "best_val_loss": best_val_loss,
+                   "labels_seen": labels_seen,
+                   "height_rmse_building": height_rmse_building,
+                   "height_rmse_vegetation": height_rmse_vegetation}

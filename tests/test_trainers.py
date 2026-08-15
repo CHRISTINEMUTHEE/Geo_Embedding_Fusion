@@ -106,7 +106,8 @@ def test_train_end_to_end_produces_artifacts(config):
     assert len(history["train_losses"]) == config.epochs
     assert math.isfinite(history["best_val_loss"])
     for artifact in [config.best_model_path, config.last_model_path,
-                     config.loss_curve_path, config.config_log_path]:
+                     config.loss_curve_path, config.height_curve_path,
+                     config.config_log_path]:
         assert artifact.exists(), f"missing artifact: {artifact}"
     ## weights reload cleanly into a fresh model of the same shape
     fresh = build_model(config, n_channels=8)

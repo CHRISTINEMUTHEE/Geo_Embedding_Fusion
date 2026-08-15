@@ -34,7 +34,7 @@ class ExperimentConfig(BaseModel):
     ## runtime (AlphaEarth=64, Tessera=128, ...), so config can't disagree with data.
     n_classes: int = 4  # building %, vegetation %, water %, nDSM height
     height_normalization_constant: float = 30.0  # heights are meters, typical max ~30
-
+    
     # Training
     batch_size: int = 32
     patch_size: int = 128
@@ -55,7 +55,8 @@ class ExperimentConfig(BaseModel):
 
     # Loss weights [MAE, SSIM, Gradient, Tversky] — only MAE used until losses.py grows
     lambdas: List[float] = [1.0, 0.5, 0.5, 2.0]
-
+    # Loss
+    loss_name:str = "mae"
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:
@@ -76,6 +77,10 @@ class ExperimentConfig(BaseModel):
     @property
     def loss_curve_path(self) -> Path:
         return self.experiment_dir / "loss_curve.png"
+
+    @property
+    def height_curve_path(self) -> Path:
+        return self.experiment_dir / "height_rmse_vs_labels.png"
 
     @property
     def config_log_path(self) -> Path:
