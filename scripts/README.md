@@ -4,47 +4,32 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 
 ## Main Scripts
 
-- `train.py`: Train models using configuration files
-- `evaluate.py`: Evaluate trained models on test data
-- `analyze.py`: Perform error analysis to guide improvements
+- `train.py`: Train models using configuration files (see `emb2heights/trainers.py`)
+- `evaluate.py`: Evaluate trained models on test data (template, not yet adapted)
+- `infer.py`: Run inference (template, not yet adapted)
+- `acquire.py`: Data acquisition (template, not yet adapted)
 
 ## Training Models
 
-The `train.py` script is used to train models based on configuration files:
+The `train.py` script trains a model from a YAML experiment config:
 
 ```bash
 # Standard training
-python train.py --config configs/0_baselines/0_simple_baseline.yaml
+python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
 
-# With overrides
-python train.py --config configs/0_baselines/0_simple_baseline.yaml --learning_rate 0.002 --batch_size 64
-
-# Hyperparameter search
-python train.py --config configs/0_baselines/0_simple_baseline.yaml --search_mode --n_trials 20
+# With overrides (quick smoke run)
+python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml --epochs 1 --batch_size 4
 ```
 
 ### Key Training Options
 
 - `--config`: Path to YAML configuration file (required)
-- `--task_type`: Task type (base, segmentation, classification, regression)
-- `--model_name`: Override model name from config
-- `--backbone_name`: Override backbone name
-- `--learning_rate`: Override learning rate
-- `--batch_size`: Override batch size
-- `--max_epochs`: Override maximum epochs
-- `--gpu_ids`: Specify GPU IDs to use
+- `--experiment_name`, `--model_name`, `--batch_size`, `--patch_size`, `--epochs`,
+  `--learning_rate`, `--weight_decay`, `--num_workers`, `--random_seed`: override
+  the corresponding YAML value
 
-### Hyperparameter Search
-
-Use the `--search_mode` flag to enable Optuna-based hyperparameter optimization:
-
-- `--n_trials`: Number of trials to run (default: 20)
-- `--search_epochs`: Epochs per trial (default: 10)
-- `--lr_range`: Learning rate range, e.g., "1e-5,1e-2"
-- `--wd_range`: Weight decay range, e.g., "1e-6,1e-3"
-- `--batch_size_range`: Comma-separated batch sizes, e.g., "16,32,64"
-- `--disable_tuning`: Parameters to exclude from tuning
-- `--frac`: Data fraction to use for faster search
+Hyperparameter search (`--search_mode`, Optuna) was removed with the old template
+`train.py`; re-add it when the baseline pipeline is stable.
 
 ## Evaluating Models
 

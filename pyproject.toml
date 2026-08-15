@@ -28,6 +28,10 @@ dependencies = [
     "ipykernel",
     "pydantic>=2.0",
     "pyyaml>=6.0",
+    "torch",
+    "rasterio",
+    "matplotlib",
+    "tqdm",
 ]
 
 [project.urls]
@@ -51,6 +55,13 @@ release = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = [
+    # synthetic test tifs have no CRS; irrelevant to what the tests check
+    "ignore::rasterio.errors.NotGeoreferencedWarning",
+]
 
 [tool.ruff]
 exclude = ["docs"]

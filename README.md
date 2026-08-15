@@ -54,7 +54,7 @@ $ uv sync
 * Train a baseline model:
 
 ```console
-$ uv run python scripts/train.py --config configs/0_baselines/0_simple_baseline.yaml
+$ uv run python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
 ```
 
 * Evaluate the model:
@@ -89,11 +89,8 @@ $ uv run python scripts/analyze.py --model-path model_runs/experiment_name/best.
   - Nuisance: must be tuned for fair comparisons
   - Fixed: keep constant for now
 
-* Run hyperparameter search:
-
-```console
-$ uv run python scripts/train.py --config configs/0_baselines/0_simple_baseline.yaml --search_mode --n_trials 20
-```
+* Run hyperparameter search: not implemented yet (the old Optuna `--search_mode`
+  was template code and was removed; re-add it in `scripts/train.py` when needed)
 
 ### 8. Speeding Up Experimentation
 
@@ -117,13 +114,15 @@ same change (see `AGENTS.md` §7).
 ├── pyproject.toml      - Dependencies and project metadata (managed with uv)
 ├── Makefile            - Common developer commands
 ├── emb2heights/  - Core package: reusable modules
-│   ├── config.py       - Configuration validation and management
-│   ├── models.py       - Model architectures and the get_model() factory
-│   ├── datasets.py     - Dataset loading and preprocessing
-│   ├── datamodules.py  - PyTorch Lightning data modules
-│   ├── trainers.py     - Training logic, tasks, and metrics
+│   ├── config.py       - ExperimentConfig (pydantic) + YAML loading
+│   ├── models.py       - Model architectures and the build_model() factory
+│   ├── datasets.py     - File pairing, datasets, and build_dataloaders()
+│   ├── losses.py       - Loss functions and the build_loss() factory
+│   ├── trainers.py     - Plain PyTorch training loop, metrics, visualization
 │   └── cli.py          - Command-line entry points
+├── data/               - Local datasets (gitignored): train/ and test/ embeddings + labels
 ├── scripts/            - Runnable scripts (train, evaluate, infer, acquire)
+├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── notebooks/          - Jupyter notebooks for prototyping and analysis

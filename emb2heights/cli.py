@@ -1,19 +1,18 @@
-"""Console script for emb2heights."""
+"""Console script for emb2heights: `python -m emb2heights.cli --config <yaml>`."""
 import argparse
 import sys
 
+from emb2heights.config import load_config
+from emb2heights.trainers import train
+
 
 def main():
-    """Console script for emb2heights."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument('_', nargs='*')
+    parser = argparse.ArgumentParser("Train emb2heights models")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
     args = parser.parse_args()
-
-    print("Arguments: " + str(args._))
-    print("Replace this message by putting your code into "
-          "emb2heights.cli.main")
+    train(load_config(args.config))
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())  # pragma: no cover
+    sys.exit(main())

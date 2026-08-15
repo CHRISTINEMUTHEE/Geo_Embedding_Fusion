@@ -1,0 +1,25 @@
+# Baseline: LightUNet on AlphaEarth pixel embeddings (64ch, 256x256).
+# Predicts 4 channels: % building, % vegetation, % water, nDSM height (m).
+# Plain MAE loss; exists as the reference point all other experiments compare against.
+experiment_name: "01_alphaearth_lightunet"
+train_embeddings_dir: "data/train/alphaearth_emb"
+train_targets_dir: "data/train/labels"
+test_embeddings_dir: "data/test/alphaearth_test_emb"
+
+model_name: "lightunet"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 32
+patch_size: 128
+num_workers: 4
+epochs: 30
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.2
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1
