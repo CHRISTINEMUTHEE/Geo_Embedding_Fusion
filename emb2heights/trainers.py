@@ -14,6 +14,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+
 from emb2heights.datasets import build_dataloaders
 from emb2heights.losses import build_loss
 from emb2heights.models import build_model
