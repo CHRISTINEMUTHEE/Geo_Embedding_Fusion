@@ -23,10 +23,17 @@ class ExperimentConfig(BaseModel):
     experiment_name: str
     base_dir: str = "outputs"
 
-    # Data locations (embeddings + matching label rasters)
-    train_embeddings_dir: str
-    train_targets_dir: str
+    # Data locations (embeddings + matching label rasters) — used by the legacy
+    # random-split loader in datasets.py (build_dataloaders)
+    train_embeddings_dir: Optional[str] = None
+    train_targets_dir: Optional[str] = None
     test_embeddings_dir: Optional[str] = None
+
+    # Region-grouped data loading (emb2heights.datamodule.Embed2HeightsDataModule).
+    # When data_root is set, trainers.train() uses this instead of build_dataloaders —
+    # it dequantizes int8 embeddings and masks nodata honestly (see datamodule.py).
+    data_root: Optional[str] = None
+    embedding_source: str = "alphaearth"
 
     # Model
     model_name: ModelNameEnum = ModelNameEnum.lightunet

@@ -1,0 +1,27 @@
+# Baseline: LightUNet on AlphaEarth pixel embeddings, via Embed2HeightsDataModule.
+# Region-grouped train/val split (no tile leakage across regions), int8 embeddings
+# dequantized, nodata masked before arithmetic instead of collapsed to 0.0 — see
+# emb2heights/datamodule.py. Points at the region-balanced subset already staged
+# locally under data/subset/ (76 usable tiles), so this runs today without the
+# full ~34 GB AlphaEarth download that 01_alphaearth_lightunet.yaml needs.
+experiment_name: "03_alphaearth_subset_datamodule"
+data_root: "data/subset"
+embedding_source: "alphaearth"
+
+model_name: "lightunet"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 8
+patch_size: 128
+num_workers: 4
+epochs: 30
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.3
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1

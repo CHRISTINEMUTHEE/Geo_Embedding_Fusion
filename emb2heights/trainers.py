@@ -15,9 +15,31 @@ import torch
 from tqdm import tqdm
 
 
+from emb2heights.datamodule import Embed2HeightsDataModule
 from emb2heights.datasets import build_dataloaders
 from emb2heights.losses import build_loss
 from emb2heights.models import build_model
+
+
+## data_root set -> region-grouped split, dequantized embeddings (datamodule.py).
+## Otherwise -> legacy random tile split (datasets.py), kept for 01/02 baselines.
+def build_train_val_loaders(config):
+    if config.data_root:
+        dm = Embed2HeightsDataModule(
+            root=config.data_root,
+            source=config.embedding_source,
+            patch_size=config.patch_size,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            val_frac=config.val_split,
+            seed=config.random_seed,
+            height_norm=config.height_normalization_constant,
+        ).setup()
+        print(f"Region-grouped split -> {len(dm.train_regions)} train regions "
+              f"({len(dm.train_ds)} tiles) / {len(dm.val_regions)} val regions "
+              f"({len(dm.val_ds)} tiles)")
+        return dm.train_dataloader(), dm.val_dataloader()
+    return build_dataloaders(config)
 
 
 def get_device():
@@ -188,7 +210,7 @@ def train(config):
     config.make_dirs()
     config.save()
 
-    train_loader, val_loader = build_dataloaders(config)
+    train_loader, val_loader = build_train_val_loaders(config)
 
     ## Infer input channels from the data (AlphaEarth=64, Tessera=128, ...)
     sample_img, _ = train_loader.dataset[0]
