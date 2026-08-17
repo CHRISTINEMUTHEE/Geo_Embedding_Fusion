@@ -117,20 +117,23 @@ same change (see `AGENTS.md` §7).
 │   ├── config.py       - ExperimentConfig (pydantic) + YAML loading
 │   ├── models.py       - Model architectures and the build_model() factory
 │   ├── datasets.py     - File pairing, datasets, and build_dataloaders()
+│   ├── datamodule.py   - Region-grouped train/val split + manifest-driven loading
 │   ├── losses.py       - Loss functions and the build_loss() factory
 │   ├── trainers.py     - Plain PyTorch training loop, metrics, visualization
 │   └── cli.py          - Command-line entry points
-├── data/               - Local datasets (gitignored): train/ and test/ embeddings + labels
+├── data/               - Local datasets (gitignored)
+│   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv
 ├── scripts/            - Runnable scripts (train, evaluate, infer, acquire)
+│   ├── acquire.py      - Full dataset from EOTDL (110+ GB, needs login)
+│   └── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
+│   └── data/           - Data-selection configs (which tiles, which sources)
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
-├── notebooks/          - Jupyter notebooks for prototyping and analysis
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)
 │   ├── sources/        - Immutable raw inputs (never modify)
 │   └── wiki/           - Agent-owned wiki pages with [[cross-references]]
-├── paper/              - LaTeX paper, figures, tables, and references (git submodule)
-└── .claude/            - Claude config: skills/, commands/, settings.json
+└── paper/              - LaTeX paper, figures, tables, and references (git submodule)
 ```
 
 Every sub-directory also has its own `README.md` describing its purpose, contents, and
