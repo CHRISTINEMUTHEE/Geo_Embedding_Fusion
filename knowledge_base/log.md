@@ -31,3 +31,23 @@ Created:
 - wiki/datasets/danum_valley_canopy_height.md
 - wiki/synthesis/geoembedding_downstream_tasks.md (synthesis: how GFM embeddings are used for downstream tasks, and the fusion/label-efficiency gap this project fills)
 Updated: index.md (Papers, Concepts, Methods, Datasets, Synthesis sections)
+
+## 2026-08-15 — ingest (manual)
+
+Added `wiki/datasets/embed2heights.md`: the ESA Φ-lab challenge dataset the code actually
+downloads, previously undocumented in the KB.
+
+Facts verified directly against the published files (not from the dataset card):
+- No georeferencing anywhere — `crs=None`, identity transforms, all 19,846 STAC bboxes zero;
+  region codes are anonymized. TorchGeo `GeoSampler` is therefore unusable and no true spatial
+  split exists.
+- Tile IDs do not encode adjacency (edge continuity 0.585 consecutive vs 0.522 random), so the
+  region code is the only leakage-free grouping for train/val.
+- Embeddings are int8-quantized in float32 (±127, nodata −128) and need `/127` plus explicit
+  nodata masking.
+- Degenerate tiles found: `gee_emb_1087_QP.tif` (all −128), `label_1582_LB_2024.tif` (all 0);
+  tile validity varies from 1.6% to 100%.
+- Public MIT mirror on Hugging Face (`troni21/esa_philab_embed2heights`) removes the EOTDL login
+  requirement.
+
+Updated: index.md (Datasets section)
