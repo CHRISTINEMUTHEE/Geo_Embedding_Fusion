@@ -80,7 +80,7 @@ def main():
     parser.add_argument("--out", type=str, default=".",
                         help="Output root (files land under <out>/data/...)")
     parser.add_argument("--catalog", type=str, default=str(CATALOG))
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--check", action="store_true",
                         help="Only report what is complete/missing, download nothing")
     args = parser.parse_args()

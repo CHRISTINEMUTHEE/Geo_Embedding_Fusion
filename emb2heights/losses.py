@@ -8,6 +8,12 @@ incrementally once the MAE baseline trains end to end.
 import torch.nn as nn
 
 
-# REVIEW REQUIRED
+# To include other losses, add them here and update the config.
 def build_loss(config):
-    return nn.L1Loss()
+    if config.loss_name == "mae":
+        mae = nn.L1Loss()
+        return mae
+
+    
+# 
+

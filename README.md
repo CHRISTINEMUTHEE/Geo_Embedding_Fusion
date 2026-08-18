@@ -35,11 +35,13 @@ What follows is a structured approach for developing your emb2heights project by
 
 ### 3. Prepare Your Environment
 
-* Sync the project environment with [uv](https://docs.astral.sh/uv/):
+This project uses [uv](https://docs.astral.sh/uv/). If a conda env is active, `conda deactivate` first.
 
 ```console
-$ uv sync
+$ uv sync --group dev
 ```
+
+That creates `.venv` (Python 3.12) with all project packages. Run commands with `uv run ...`, or `source .venv/bin/activate`. Add a library with `uv add <package>` (or `uv add --group dev <package>` for test/lint tools), then commit `pyproject.toml` and `uv.lock`.
 
 ### 4. Organize Your Data
 
@@ -128,7 +130,7 @@ same change (see `AGENTS.md` §7).
 │   └── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
-│   └── data/           - Data-selection configs (which tiles, which sources)
+│   └── 0_baselines/    - Per-source LightUNet / EfficientDecoder YAMLs (full data + subset)
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)
 │   ├── sources/        - Immutable raw inputs (never modify)

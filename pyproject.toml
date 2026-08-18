@@ -3,7 +3,7 @@ name = "emb2heights"
 version = "0.1.0"
 description = "A multi-task model that takes pre-computed embeddings from several geospatial foundation models and predicts sub-pixel land cover and height over France."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12,<3.13"
 license = "MIT"
 authors = [
     { name = "Christine Muthee", email = "christine.muthee@wri.org" },
@@ -14,24 +14,41 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
+    # core
     "numpy",
     "pandas",
+    "pyarrow",
+    "scipy",
     "scikit-learn",
+    "pillow",
+    "tqdm",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    # viz / notebooks
+    "matplotlib",
     "seaborn",
     "notebook",
     "ipykernel",
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "torch",
+    # geospatial
     "rasterio",
-    "matplotlib",
-    "tqdm",
+    "geopandas",
+    "shapely",
+    "pyproj",
+    "affine",
+    # deep learning (from conda emb2heights)
+    "torch",
+    "torchvision",
+    "torchmetrics",
+    "lightning",
+    "torchgeo",
+    "timm",
+    "kornia",
+    "segmentation-models-pytorch",
+    # data access
+    "eotdl",
 ]
 
 [project.urls]
@@ -59,7 +76,6 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = [
-    # synthetic test tifs have no CRS; irrelevant to what the tests check
     "ignore::rasterio.errors.NotGeoreferencedWarning",
 ]
 
