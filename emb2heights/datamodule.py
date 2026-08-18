@@ -24,7 +24,7 @@ EMB_NODATA = -128.0
 EMB_SCALE = 127.0
 
 ## Sources whose native embedding grid is coarser than the label's pixel grid (patch
-## tokens, e.g. TerraMind/THOR at 16x16x768) need PatchEmbeddingsDataset instead of
+## tokens, e.g. TerraMind/THOR at 16x16x768) need LatentTokenDataset instead of
 ## TilePairDataset. AlphaEarth/Tessera are pixel-aligned and are not listed here.
 PATCH_SOURCES = {"terramind_s1", "terramind_s2", "thor_s1", "thor_s2"}
 
@@ -97,17 +97,10 @@ class TilePairDataset(Dataset):
         tar[3] = np.clip(tar[3] / self.height_norm, 0.0, 1.5)
         return tar
 
-    ## Hook for subclasses whose native embedding grid doesn't match the target's
-    ## pixel grid (see PatchEmbeddingsDataset). No-op here: pixel-aligned sources
-    ## already match, so this class's behavior is unchanged.
-    def _postprocess_embedding(self, image, target_hw):
-        return image
-
     def __getitem__(self, idx):
         row = self.rows[idx]
         image = self._read_embedding(self.root / row[f"{self.source}_path"])
         target = self._read_target(self.root / row["label_path"])
-        image = self._postprocess_embedding(image, target.shape[1:])
 
         ## Tiles are not all 256x256 (255x256 also occurs); pad both to the crop size.
         h, w = image.shape[1], image.shape[2]
@@ -130,28 +123,65 @@ class TilePairDataset(Dataset):
 
 
 # REVIEW REQUIRED
-class PatchEmbeddingsDataset(TilePairDataset):
-    """Patch-token embeddings (e.g. TerraMind/THOR, 16x16x768) nearest-neighbor
-    upsampled to the label's native pixel grid before cropping, so they plug into
-    the same crop/model pipeline as TilePairDataset.
-
-    This is a data-loader-level fix, not the "latent-based fusion" research_questions.md
-    describes for THOR/TerraMind (fusing at the model's latent representation, with a
-    learned upsample) -- it gets a first single-source patch baseline running on the
-    existing pixel-wise architecture. Revisit before drawing fusion conclusions from it:
-    every 16x16 block of "pixels" here is a repeated constant, not new spatial detail.
+class LatentTokenDataset(TilePairDataset):
+    """Patch-token embeddings (e.g. TerraMind/THOR, 16x16x768) kept at their native,
+    low-resolution grid -- no upsampling. Padding and cropping happen at two scales:
+    the embedding is cropped in token-space (patch_size // scale_factor tokens per
+    side), and the target is cropped in pixel-space at the *exact* matching footprint
+    (crop position and size both scaled by scale_factor from the token crop). Image
+    and target come back at different resolutions on purpose -- for a model that
+    decodes tokens itself (latent-based fusion, research_questions.md), not LightUNet.
     """
 
-    def _postprocess_embedding(self, image, target_hw):
-        c, ph, pw = image.shape
-        th, tw = target_hw
-        if (ph, pw) == (th, tw):
-            return image
-        ## Nearest-neighbor via index repeat: each patch token maps to a contiguous
-        ## block of pixels, so a later crop never splits one token across two crops.
-        row_idx = np.arange(th) * ph // th
-        col_idx = np.arange(tw) * pw // tw
-        return image[:, row_idx][:, :, col_idx]
+    def __init__(self, rows, root, source="terramind_s1", patch_size=256,
+                 scale_factor=16, is_train=True, height_norm=30.0):
+        super().__init__(rows, root, source=source, patch_size=patch_size,
+                          is_train=is_train, height_norm=height_norm)
+        self.scale_factor = scale_factor
+        self.emb_patch_size = patch_size // scale_factor
+
+    def __getitem__(self, idx):
+        row = self.rows[idx]
+        image = self._read_embedding(self.root / row[f"{self.source}_path"])
+        target = self._read_target(self.root / row["label_path"])
+
+        emb_patch_size = self.emb_patch_size
+        ## Target crop size is derived from the *token* crop (emb_patch_size *
+        ## scale_factor), not self.patch_size directly -- those only agree when
+        ## patch_size divides evenly by scale_factor. Deriving it guarantees the
+        ## target always covers exactly the ground footprint of the token crop,
+        ## even when it doesn't.
+        target_crop = emb_patch_size * self.scale_factor
+
+        c, h_emb, w_emb = image.shape
+        if h_emb < emb_patch_size or w_emb < emb_patch_size:
+            pad_h = max(0, emb_patch_size - h_emb)
+            pad_w = max(0, emb_patch_size - w_emb)
+            image = np.pad(image, ((0, 0), (0, pad_h), (0, pad_w)), mode="reflect")
+            h_emb, w_emb = image.shape[1], image.shape[2]
+
+        _, h_tar, w_tar = target.shape
+        if h_tar < target_crop or w_tar < target_crop:
+            pad_h = max(0, target_crop - h_tar)
+            pad_w = max(0, target_crop - w_tar)
+            target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode="reflect")
+
+        ## Multi-scale cropping: pick the crop in token-space, then scale the same
+        ## position and size up to pixel-space for the target -- so both crops cover
+        ## the identical ground area, just at each source's native resolution.
+        if self.is_train:
+            top_emb = np.random.randint(0, h_emb - emb_patch_size + 1)
+            left_emb = np.random.randint(0, w_emb - emb_patch_size + 1)
+        else:
+            top_emb = (h_emb - emb_patch_size) // 2
+            left_emb = (w_emb - emb_patch_size) // 2
+
+        image = image[:, top_emb:top_emb + emb_patch_size, left_emb:left_emb + emb_patch_size]
+
+        top_tar, left_tar = top_emb * self.scale_factor, left_emb * self.scale_factor
+        target = target[:, top_tar:top_tar + target_crop, left_tar:left_tar + target_crop]
+
+        return torch.from_numpy(image.copy()), torch.from_numpy(target.copy())
 
 
 # REVIEW REQUIRED
@@ -159,7 +189,8 @@ class Embed2HeightsDataModule:
     """Manifest -> region-grouped train/val loaders. Plain Python, no Lightning."""
 
     def __init__(self, root, manifest=None, source="alphaearth", patch_size=128,
-                 batch_size=8, num_workers=0, val_frac=0.3, seed=42, height_norm=30.0):
+                 batch_size=8, num_workers=0, val_frac=0.3, seed=42, height_norm=30.0,
+                 scale_factor=16):
         from pathlib import Path
         self.root = Path(root)
         self.manifest = Path(manifest) if manifest else self.root / "manifest.csv"
@@ -170,6 +201,7 @@ class Embed2HeightsDataModule:
         self.val_frac = val_frac
         self.seed = seed
         self.height_norm = height_norm
+        self.scale_factor = scale_factor  # only used when source is in PATCH_SOURCES
         self.train_ds = self.val_ds = None
         self.train_regions = self.val_regions = []
 
@@ -184,9 +216,13 @@ class Embed2HeightsDataModule:
         common = {r["tile_id"] for r in tr} & {r["tile_id"] for r in va}
         assert not common, f"tile leakage between splits: {common}"
 
-        dataset_cls = PatchEmbeddingsDataset if self.source in PATCH_SOURCES else TilePairDataset
         kw = dict(root=self.root, source=self.source, patch_size=self.patch_size,
                   height_norm=self.height_norm)
+        if self.source in PATCH_SOURCES:
+            dataset_cls = LatentTokenDataset
+            kw["scale_factor"] = self.scale_factor
+        else:
+            dataset_cls = TilePairDataset
         self.train_ds = dataset_cls(tr, is_train=True, **kw)
         self.val_ds = dataset_cls(va, is_train=False, **kw)
         return self

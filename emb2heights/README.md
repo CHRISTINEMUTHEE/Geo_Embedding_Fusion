@@ -16,12 +16,15 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
 - `datamodule.py`: `Embed2HeightsDataModule` — region-grouped train/val split driven by
   `manifest.csv`. `TilePairDataset` handles pixel-aligned sources (AlphaEarth, Tessera):
   quantization is detected from the data itself (integer-valued, bounded to +/-127), not
-  assumed, and nodata comes from the file's own metadata. `PatchEmbeddingsDataset` (subclass)
-  handles patch-token sources (TerraMind/THOR, e.g. 16x16x768) by nearest-neighbor
-  upsampling to the label's pixel grid before cropping — a data-loader-level baseline, not
-  the latent-based fusion `paper/research_questions.md` describes for those two sources.
-  `PATCH_SOURCES` selects which class a given `source=` name gets. Use this module for new
-  work
+  assumed, and nodata comes from the file's own metadata (`rasterio`'s `nodata`, whatever
+  sentinel a given source actually uses — verified against real data as `-128`, `nan`, `0`,
+  and "none set" across the six sources). `LatentTokenDataset` (subclass) handles patch-token
+  sources (TerraMind/THOR, e.g. 16x16x768): kept at native resolution, no upsampling —
+  cropping happens at two scales (`scale_factor`, default 16), so image and target come back
+  at *different* resolutions on purpose, for a model that decodes tokens itself (the
+  latent-based fusion `paper/research_questions.md` describes for those two sources, not
+  LightUNet). `PATCH_SOURCES` selects which class a given `source=` name gets. Use this
+  module for new work
 - `losses.py`: `build_loss(config)` — currently MAE; composite terms (SSIM,
   gradient, Tversky) to be added incrementally
 - `trainers.py`: `train(config)` — the training/validation loop, challenge-style

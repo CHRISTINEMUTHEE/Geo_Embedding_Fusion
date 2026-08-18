@@ -20,11 +20,23 @@ downloads them, and writes a `manifest.csv` with per-tile QC:
 ```bash
 python scripts/acquire_subset.py --dry-run     # show selection and size, download nothing
 python scripts/acquire_subset.py --limit 6     # quick smoke test
-python scripts/acquire_subset.py               # full subset -> data/subset/
+python scripts/acquire_subset.py               # alphaearth only -> data/subset/
 ```
 
-Settings are pinned in `configs/data/subset_alphaearth.yaml`. Add `--sources alphaearth tessera`
-to pull TESSERA embeddings for the same tiles.
+Six sources are available (see `SOURCES` in the script): `alphaearth`, `tessera` (pixel-aligned,
+~17/~34 MB per tile) and `thor_s1`, `thor_s2`, `terramind_s1`, `terramind_s2` (patch-token
+embeddings, ~1 MB per tile — see `emb2heights.datamodule.PATCH_SOURCES`). A tile is only kept if
+it has every requested source, so pulling more sources for the *same* tiles needs a bigger
+`--max-gb`, not a smaller subset:
+
+```bash
+python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \
+    terramind_s1 terramind_s2 --max-gb 6
+```
+
+Already-downloaded files are skipped (resumable), so re-running with more `--sources` only
+fetches what's missing. See `configs/0_baselines/03_alphaearth_subset_datamodule.yaml` for a
+config pointed at the resulting `data/subset/`.
 
 ## Training Models
 
