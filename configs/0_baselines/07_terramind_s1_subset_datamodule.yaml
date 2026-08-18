@@ -1,0 +1,25 @@
+# Baseline: EfficientDecoder on TerraMind Sentinel-1 patch-token embeddings.
+# TerraMind is not a single source — this is the S1 (SAR) variant. Tokens are 16x16x768,
+# labels 256x256, so LightUNet cannot train; EfficientDecoder upsamples 16 -> 256.
+# Same data_subset / region-grouped / 2-epoch smoke recipe as 03.
+experiment_name: "07_terramind_s1_subset_datamodule"
+data_root: "data/subset"
+embedding_source: "terramind_s1"
+
+model_name: "efficientdecoder"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 8
+patch_size: 256
+num_workers: 4
+epochs: 2
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.3
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1

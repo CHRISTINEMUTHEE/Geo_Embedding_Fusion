@@ -35,8 +35,10 @@ python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \
 ```
 
 Already-downloaded files are skipped (resumable), so re-running with more `--sources` only
-fetches what's missing. See `configs/0_baselines/03_alphaearth_subset_datamodule.yaml` for a
-config pointed at the resulting `data/subset/`.
+fetches what's missing. Subset training configs in `configs/0_baselines/` (`03`–`08`) all
+point at the resulting `data/subset/`. Pixel-aligned sources use LightUNet (`03` AlphaEarth,
+`04` Tessera); patch-token sources use EfficientDecoder (`05`/`06` THOR S1/S2, `07`/`08`
+TerraMind S1/S2).
 
 ## Training Models
 

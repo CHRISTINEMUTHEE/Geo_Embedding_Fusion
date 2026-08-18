@@ -6,8 +6,9 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
 
 - `config.py`: `ExperimentConfig` (pydantic) — all experiment knobs, derived output
   paths as properties, `load_config()` for YAML + CLI overrides
-- `models.py`: model architectures (`LightUNet`) and the `build_model(config, n_channels)`
-  factory; input channels are inferred from the data, not configured
+- `models.py`: model architectures (`LightUNet` for pixel-aligned sources, `EfficientDecoder`
+  for 16x16 patch-token sources) and the `build_model(config, n_channels)` factory; input
+  channels are inferred from the data, not configured
 - `datasets.py`: embedding/label file pairing (`find_file_pairs`),
   `PixelEmbeddingsDataset` (1:1 pixel embeddings like AlphaEarth/Tessera), and
   `build_dataloaders(config)`. **Known flaws** — it splits tiles at random (leaking

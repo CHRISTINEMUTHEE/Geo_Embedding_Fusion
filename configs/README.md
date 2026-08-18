@@ -8,11 +8,17 @@ Configuration files are organized by research direction, with each sub-directory
 
 ```
 configs/
-├── 0_baselines/         # Initial baseline experiments
-├── 1_architectures/     # Testing different model architecturess
+├── 0_baselines/         # Per-source baselines (full data + data/subset smoke runs)
+├── 1_architectures/     # Testing different model architectures
 ├── 2_data_augmentation/ # Exploring augmentation strategies
 └── ...                  # Additional research directions
 ```
+
+`0_baselines/` currently:
+
+- `01_alphaearth_lightunet.yaml` / `02_tessera_lightunet.yaml` — full-data LightUNet, legacy random split
+- `03_alphaearth_subset_datamodule.yaml` / `04_tessera_subset_datamodule.yaml` — LightUNet on `data/subset/` (pixel-aligned sources)
+- `05_thor_s1_subset_datamodule.yaml` / `06_thor_s2_subset_datamodule.yaml` / `07_terramind_s1_subset_datamodule.yaml` / `08_terramind_s2_subset_datamodule.yaml` — EfficientDecoder on `data/subset/` (patch-token sources; S1 and S2 are separate `embedding_source` values, there is no combined `thor` or `terramind`)
 
 ## Creating New Experiments
 

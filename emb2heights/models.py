@@ -96,10 +96,59 @@ class LightUNet(nn.Module):
         logits = self.outc(x)
         return logits
 
+# ==========================================
+# 2. Efficient Decoder COMPONENTS
+# ==========================================
+class StandardUpsampleBlock(nn.Module):
+    '''Uses standard dense convolutions and GELU activation'''
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+        # standard 3*3 convolution(groups=1) + BatchNorm + GELU = M2GPU thrives here!
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels)
+        self.gelu = nn.GELU()
+
+    def forward(self, x):
+        x = self.upsample(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.gelu(x)
+        return x
+
+class EfficientDecoder(nn.Module):
+    '''Mempry efficient decoder for 16*16 -> 256*256 upsampling on M2 Max'''
+    def __init__(self, n_channels, n_classes):
+        super().__init__()
+        # The Squeeze : 768 -> 256 at 16*16 resolution to prevent memory explosion
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(n_channels, 256, kernel_size=1),
+            nn.BatchNorm2d(256),
+            nn.GELU()
+        )
+        #Progressive Upsampling with channels as resolution doubles
+        self.up1 = StandardUpsampleBlock(256, 128)
+        self.up2 = StandardUpsampleBlock(128, 64)
+        self.up3 = StandardUpsampleBlock(64, 32)
+        self.up4 = StandardUpsampleBlock(32, 16)
+        # Prediction Head
+        ## padding=0: a 1x1 conv must not grow 256x256 to 258x258 (MAE needs pred==target HW)
+        self.head = nn.Conv2d(16, n_classes, kernel_size=1, padding=0)
+
+
+    def forward(self, x):
+        x = self.bottleneck(x)
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
+        x = self.up4(x)
+        return self.head(x)
 # REVIEW REQUIRED
 ## Factory: model choice from config, n_channels inferred from data by the caller.
 def build_model(config, n_channels):
     if config.model_name == "lightunet":
         return LightUNet(n_channels, config.n_classes)
+    elif config.model_name == "efficientdecoder":
+        return EfficientDecoder(n_channels, config.n_classes)
     raise ValueError(f"Model {config.model_name} not implemented")
 
