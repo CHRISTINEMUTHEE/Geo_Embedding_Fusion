@@ -34,6 +34,7 @@ def build_train_val_loaders(config):
             val_frac=config.val_split,
             seed=config.random_seed,
             height_norm=config.height_normalization_constant,
+            max_train_tiles=config.max_train_tiles,
         ).setup()
         print(f"Region-grouped split -> {len(dm.train_regions)} train regions "
               f"({len(dm.train_ds)} tiles) / {len(dm.val_regions)} val regions "
@@ -99,17 +100,32 @@ def binary_iou_from_channel(pred, target, threshold=0.1, eps=1e-6):
     return (intersection + eps) / (union + eps)
 
 
-def masked_rmse(pred_height, true_height, mask):
-    """RMSE in meters over pixels where mask is True."""
+def masked_rmse(pred_height, true_height, mask=None):
+    """RMSE in meters. mask=None -> every pixel; otherwise only where mask is True."""
+    if mask is None:
+        mask = torch.ones_like(true_height, dtype=torch.bool)
     if mask.sum() == 0:
         return torch.tensor(float("nan"), device=pred_height.device)
     return torch.sqrt(torch.mean((pred_height[mask] - true_height[mask]) ** 2))
 
 
+def masked_mae(pred_height, true_height, mask=None):
+    """MAE in meters. mask=None -> every pixel; otherwise only where mask is True."""
+    if mask is None:
+        mask = torch.ones_like(true_height, dtype=torch.bool)
+    if mask.sum() == 0:
+        return torch.tensor(float("nan"), device=pred_height.device)
+    return torch.mean((pred_height[mask] - true_height[mask]).abs())
+
+
 # REVIEW REQUIRED
 def evaluate_metrics(model, val_loader, device, height_norm, threshold=0.1):
     model.eval()
+    ## mae_height/rmse_height: unmasked, every pixel -- the primary RQ1/RQ2 metric.
+    ## rmse_building/rmse_vegetation: masked to where that class is present in the
+    ## target -- diagnostic (where does height error concentrate), not the headline number.
     scores = {k: [] for k in ["iou_building", "iou_vegetation", "iou_water",
+                              "mae_height", "rmse_height",
                               "rmse_building", "rmse_vegetation"]}
     with torch.no_grad():
         for imgs, targets in val_loader:
@@ -125,6 +141,8 @@ def evaluate_metrics(model, val_loader, device, height_norm, threshold=0.1):
             scores["iou_building"].append(binary_iou_from_channel(pred[:, 0], true[:, 0], threshold))
             scores["iou_vegetation"].append(binary_iou_from_channel(pred[:, 1], true[:, 1], threshold))
             scores["iou_water"].append(binary_iou_from_channel(pred[:, 2], true[:, 2], threshold))
+            scores["mae_height"].append(masked_mae(pred_height, true_height))
+            scores["rmse_height"].append(masked_rmse(pred_height, true_height))
             scores["rmse_building"].append(masked_rmse(pred_height, true_height, true[:, 0] > threshold))
             scores["rmse_vegetation"].append(masked_rmse(pred_height, true_height, true[:, 1] > threshold))
 
@@ -162,14 +180,20 @@ def visualize_results(model, dataset, config, device, num_samples=10):
             plt.close(fig)
 
 
-def plot_height_rmse_vs_labels(labels_seen, rmse_building, rmse_vegetation, path):
-    """Val height RMSE (m) vs cumulative training labels (tiles) seen so far."""
+def plot_height_rmse_vs_epoch(epochs, rmse_overall, rmse_building, rmse_vegetation, path):
+    """Val height RMSE (m) vs training epoch, within this one run.
+    rmse_overall (unmasked, every pixel) is the headline curve; building/vegetation
+    (masked to where that class is present) are diagnostic. This is a training-progress
+    curve, NOT a label-efficiency curve -- it shows one run's epochs, not different
+    amounts of training data. For the RQ2 label-efficiency sweep (accuracy vs number of
+    labeled tiles, across separate runs), see scripts/label_efficiency_sweep.py."""
     fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(labels_seen, rmse_building, marker="o", label="Building height RMSE")
-    ax.plot(labels_seen, rmse_vegetation, marker="s", label="Vegetation height RMSE")
-    ax.set_xlabel("Training labels seen (tiles)")
+    ax.plot(epochs, rmse_overall, marker="^", linewidth=2.5, label="Overall height RMSE")
+    ax.plot(epochs, rmse_building, marker="o", linestyle="--", alpha=0.7, label="Building height RMSE")
+    ax.plot(epochs, rmse_vegetation, marker="s", linestyle="--", alpha=0.7, label="Vegetation height RMSE")
+    ax.set_xlabel("Epoch")
     ax.set_ylabel("Height RMSE (m) — lower is better")
-    ax.set_title("Height accuracy vs training labels")
+    ax.set_title("Height accuracy vs training epoch (this run)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.savefig(path)
@@ -224,9 +248,10 @@ def train(config):
     scheduler = build_scheduler(config, optimizer)
 
     train_losses, val_losses = [], []
-    labels_seen, height_rmse_building, height_rmse_vegetation = [], [], []
-    best_val_loss = float("inf")
-    n_train = len(train_loader.dataset)
+    epochs_seen = []
+    height_mae_overall, height_rmse_overall = [], []
+    height_rmse_building, height_rmse_vegetation = [], []
+    best_height_rmse = float("inf")
 
     for epoch in range(1, config.epochs + 1):
         desc = f"Epoch {epoch}/{config.epochs}"
@@ -243,18 +268,24 @@ def train(config):
 
         print(f"{desc} - train MAE: {train_loss:.4f} - val MAE: {val_loss:.4f}")
 
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            torch.save(model.state_dict(), config.best_model_path)
-            print(f"  New best (val {val_loss:.4f}) -> {config.best_model_path}")
-
         metrics = evaluate_metrics(model, val_loader, device,
                                    config.height_normalization_constant)
-        labels_seen.append(epoch * n_train)
+        epochs_seen.append(epoch)
+        height_mae_overall.append(metrics["mae_height"])
+        height_rmse_overall.append(metrics["rmse_height"])
         height_rmse_building.append(metrics["rmse_building"])
         height_rmse_vegetation.append(metrics["rmse_vegetation"])
-        print(f"  Height RMSE (m): building={metrics['rmse_building']:.3f}, "
-              f"vegetation={metrics['rmse_vegetation']:.3f}")
+        print(f"  Height MAE/RMSE (m) overall: {metrics['mae_height']:.3f}/{metrics['rmse_height']:.3f} | "
+              f"RMSE building={metrics['rmse_building']:.3f} vegetation={metrics['rmse_vegetation']:.3f}")
+
+        ## "Best" checkpoint = lowest overall (unmasked) height RMSE, not lowest val loss --
+        ## ties model selection to the actual research metric (RQ1/RQ2) instead of a
+        ## training-loss number that, under "weighted" loss, blends height with the
+        ## auxiliary landcover term and isn't in meters.
+        if metrics["rmse_height"] < best_height_rmse:
+            best_height_rmse = metrics["rmse_height"]
+            torch.save(model.state_dict(), config.best_model_path)
+            print(f"  New best (val height RMSE {metrics['rmse_height']:.3f}m) -> {config.best_model_path}")
 
         if epoch % 10 == 0:
             print("  Challenge-style evaluation:")
@@ -272,13 +303,17 @@ def train(config):
     plt.savefig(config.loss_curve_path)
     plt.close()
 
-    plot_height_rmse_vs_labels(labels_seen, height_rmse_building, height_rmse_vegetation,
-                               config.height_curve_path)
+    plot_height_rmse_vs_epoch(epochs_seen, height_rmse_overall, height_rmse_building,
+                              height_rmse_vegetation, config.height_curve_path)
 
     visualize_results(model, val_loader.dataset, config, device)
     print(f"Artifacts saved under {config.experiment_dir}")
     return model, {"train_losses": train_losses, "val_losses": val_losses,
-                   "best_val_loss": best_val_loss,
-                   "labels_seen": labels_seen,
+                   "best_val_loss": min(val_losses),
+                   "n_train_tiles": len(train_loader.dataset),
+                   "epochs_seen": epochs_seen,
+                   "height_mae_overall": height_mae_overall,
+                   "height_rmse_overall": height_rmse_overall,
+                   "best_height_rmse_overall": min(height_rmse_overall),
                    "height_rmse_building": height_rmse_building,
                    "height_rmse_vegetation": height_rmse_vegetation}

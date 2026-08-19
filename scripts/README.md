@@ -5,6 +5,8 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 ## Main Scripts
 
 - `train.py`: Train models using configuration files (see `emb2heights/trainers.py`)
+- `label_efficiency_sweep.py`: Train the same config at several training-tile budgets,
+  compare best achieved height accuracy across them (RQ2)
 - `evaluate.py`: Evaluate trained models on test data (template, not yet adapted)
 - `infer.py`: Run inference (template, not yet adapted)
 - `acquire.py`: Download the **full** dataset from EOTDL (110+ GB; needs an EOTDL login and a
@@ -58,28 +60,32 @@ python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yam
 - `--experiment_name`, `--model_name`, `--batch_size`, `--patch_size`, `--epochs`,
   `--learning_rate`, `--weight_decay`, `--num_workers`, `--random_seed`: override
   the corresponding YAML value
+- `--loss_name`, `--w_height`, `--w_landcover`, `--bg_weight`: loss overrides (see
+  `emb2heights/losses.py`) — `--w_landcover 0.0` is the RQ3 ablation
+- `--max_train_tiles`: cap training tiles (val stays full) — one point of a
+  label-efficiency sweep; use `label_efficiency_sweep.py` to run the whole sweep
 
 Hyperparameter search (`--search_mode`, Optuna) was removed with the old template
 `train.py`; re-add it when the baseline pipeline is stable.
 
-## Evaluating Models
+## Label-Efficiency Sweep
 
-The `evaluate.py` script runs inference and computes metrics:
+`label_efficiency_sweep.py` trains a config once per training-tile budget (val fixed
+across all of them) and plots best achieved overall height RMSE against tiles used —
+the actual RQ2 curve, not a single run's epoch-by-epoch progress:
 
 ```bash
-python evaluate.py --model_path model_runs/experiment/best.ckpt --test_data path/to/test/data
+python scripts/label_efficiency_sweep.py \
+    --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml \
+    --tile-counts 10 20 40 80 --epochs 20
+# Produces: outputs/<sweep-name>_sweep/label_efficiency_results.csv, label_efficiency_curve.png
 ```
 
-### Key Evaluation Options
+## Evaluating Models
 
-- `--model_path`: Path to model checkpoint (required)
-- `--test_data`: Path to test data (required)
-- `--config`: Path to original config file (optional)
-- `--output_dir`: Directory to save results (default: "evaluation_results")
-- `--batch_size`: Batch size for evaluation
-- `--save_predictions`: Save model predictions to disk
-- `--task_type`: Task type (base, segmentation, classification, regression)
-- `--gpu_id`: GPU ID to use for evaluation
+`evaluate.py` is a template carried over from the original project scaffold and is not
+adapted to this pipeline — it imports modules (`TrainerConfig`, `datamodules.get_datamodule`,
+`trainers.get_task`) that no longer exist and will fail on import. Not usable yet.
 
 ## Extending Scripts
 

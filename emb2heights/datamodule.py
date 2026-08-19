@@ -190,7 +190,7 @@ class Embed2HeightsDataModule:
 
     def __init__(self, root, manifest=None, source="alphaearth", patch_size=128,
                  batch_size=8, num_workers=0, val_frac=0.3, seed=42, height_norm=30.0,
-                 scale_factor=16):
+                 scale_factor=16, max_train_tiles=None):
         from pathlib import Path
         self.root = Path(root)
         self.manifest = Path(manifest) if manifest else self.root / "manifest.csv"
@@ -202,8 +202,15 @@ class Embed2HeightsDataModule:
         self.seed = seed
         self.height_norm = height_norm
         self.scale_factor = scale_factor  # only used when source is in PATCH_SOURCES
+        ## Caps *training* tiles only -- val stays full so different label budgets are
+        ## still compared against the same validation set. A real label-efficiency sweep
+        ## (see scripts/label_efficiency_sweep.py) needs this: multiple separate runs at
+        ## different max_train_tiles, compared by best achieved accuracy -- not one run's
+        ## epoch-by-epoch curve, which was the previous (incorrect) label-efficiency plot.
+        self.max_train_tiles = max_train_tiles
         self.train_ds = self.val_ds = None
         self.train_regions = self.val_regions = []
+        self.n_train_tiles_used = None
 
     def setup(self):
         rows = read_manifest(self.manifest)
@@ -215,6 +222,15 @@ class Embed2HeightsDataModule:
         va = [r for r in rows if r["region"] in set(self.val_regions)]
         common = {r["tile_id"] for r in tr} & {r["tile_id"] for r in va}
         assert not common, f"tile leakage between splits: {common}"
+
+        if self.max_train_tiles is not None:
+            ## Shuffle once with a fixed seed, then take the first N -- so budget=10 is a
+            ## subset of budget=25's tiles, giving a genuine "adding more labels" sweep
+            ## rather than unrelated random draws per budget.
+            tr = sorted(tr, key=lambda r: r["tile_id"])
+            random.Random(self.seed).shuffle(tr)
+            tr = tr[:self.max_train_tiles]
+        self.n_train_tiles_used = len(tr)
 
         kw = dict(root=self.root, source=self.source, patch_size=self.patch_size,
                   height_norm=self.height_norm)

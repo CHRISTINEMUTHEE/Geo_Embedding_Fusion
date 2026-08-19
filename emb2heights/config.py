@@ -7,7 +7,7 @@ computed properties so they always follow experiment_name.
 """
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import yaml
 from pydantic import BaseModel
@@ -35,6 +35,9 @@ class ExperimentConfig(BaseModel):
     # it dequantizes int8 embeddings and masks nodata honestly (see datamodule.py).
     data_root: Optional[str] = None
     embedding_source: str = "alphaearth"
+    ## Caps training tiles only (val stays full) -- for a real label-efficiency sweep
+    ## (RQ2), see scripts/label_efficiency_sweep.py, which sets this across several runs.
+    max_train_tiles: Optional[int] = None
 
     # Model
     model_name: ModelNameEnum = ModelNameEnum.lightunet
@@ -61,10 +64,19 @@ class ExperimentConfig(BaseModel):
     step_size: int = 30              # step
     gamma: float = 0.1               # step
 
-    # Loss weights [MAE, SSIM, Gradient, Tversky] — only MAE used until losses.py grows
-    lambdas: List[float] = [1.0, 0.5, 0.5, 2.0]
-    # Loss
-    loss_name:str = "mae"
+    # Loss: "mae" (plain L1 over all 4 channels, no weighting) | "weighted" (height +
+    # weighted-landcover, see losses.py -- Tversky/Dice was tried and rejected there,
+    # miscalibrated for continuous fraction targets; see the module docstring)
+    loss_name: str = "mae"
+    ## height is the primary target (RQ1/RQ2); landcover is an auxiliary head (RQ3).
+    ## Set w_landcover=0.0 to ablate it -- that's the actual RQ3 comparison.
+    w_height: float = 1.0
+    w_landcover: float = 1.0
+    ## Landcover channels are continuous sub-pixel fractions (verified against real
+    ## data), not discrete classes. Building/water are heavily imbalanced (~1-3% mean
+    ## coverage, ~70-75% of tiles near-zero) -- bg_weight downweights zero-label pixels
+    ## in the landcover L1 so they don't drown out the sparse foreground signal.
+    bg_weight: float = 0.05
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:

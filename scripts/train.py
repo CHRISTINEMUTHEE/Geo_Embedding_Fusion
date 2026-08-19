@@ -24,6 +24,12 @@ def parse_args():
     parser.add_argument("--weight_decay", type=float)
     parser.add_argument("--num_workers", type=int)
     parser.add_argument("--random_seed", type=int)
+    parser.add_argument("--loss_name", type=str, help="mae | weighted (see emb2heights/losses.py)")
+    parser.add_argument("--w_height", type=float)
+    parser.add_argument("--w_landcover", type=float, help="0.0 ablates the auxiliary landcover head (RQ3)")
+    parser.add_argument("--bg_weight", type=float)
+    parser.add_argument("--max_train_tiles", type=int,
+                        help="Cap training tiles (val stays full) -- for a label-efficiency sweep, see scripts/label_efficiency_sweep.py")
     return parser.parse_args()
 
 
