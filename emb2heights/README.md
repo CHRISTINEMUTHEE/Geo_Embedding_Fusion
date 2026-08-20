@@ -36,8 +36,11 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   since building/water are real-data-imbalanced (~1-3% mean coverage). Soft
   Tversky/Dice was tried and rejected: verified numerically to be miscalibrated for
   continuous fractional targets — see the module docstring before reintroducing it
-- `trainers.py`: `train(config)` — the training/validation loop, challenge-style
-  metrics (IoU, masked height RMSE), loss curves, and result visualizations.
+- `trainers.py`: `train(config, save_artifacts=True)` — the training/validation loop,
+  challenge-style metrics (IoU, masked height RMSE), loss curves, and result
+  visualizations. `save_artifacts=False` skips every disk write and the
+  `visualize_results()` forward passes, returning only the metrics dict — used by
+  `label_efficiency_sweep.py`, which doesn't need N full per-run artifact sets.
   `build_train_val_loaders(config)` picks the loader: `datamodule.py` when
   `config.data_root` is set, otherwise the legacy `datasets.py` split.
   `evaluate_metrics()` reports both `mae_height`/`rmse_height` (unmasked, every pixel —

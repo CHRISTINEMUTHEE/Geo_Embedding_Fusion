@@ -72,14 +72,22 @@ Hyperparameter search (`--search_mode`, Optuna) was removed with the old templat
 
 `label_efficiency_sweep.py` trains a config once per training-tile budget (val fixed
 across all of them) and plots best achieved overall height RMSE against tiles used —
-the actual RQ2 curve, not a single run's epoch-by-epoch progress:
+the actual RQ2 curve, not a single run's epoch-by-epoch progress. Each run's
+checkpoints/loss-curve/visualizations are **not** saved by default — the sweep calls
+`train(config, save_artifacts=False)`, since only the final aggregate CSV/plot is
+normally wanted, not N full `outputs/<experiment_name>/` trees:
 
 ```bash
-python scripts/label_efficiency_sweep.py \
-    --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml \
-    --tile-counts 10 20 40 80 --epochs 20
+python scripts/label_efficiency_sweep.py --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml --tile-counts 10 20 40 80 --epochs 20
 # Produces: outputs/<sweep-name>_sweep/label_efficiency_results.csv, label_efficiency_curve.png
 ```
+
+One line on purpose — a backslash-continued command silently breaks if a trailing
+space survives copy-paste; zsh then runs the first line alone and tries to run
+`--tile-counts ...` as its own command ("command not found"). If a run in the sweep
+hangs (see the known `num_workers` issue in `emb2heights/README.md`), add
+`--num-workers 0`. Add `--save-artifacts` to keep each run's full per-experiment
+outputs too, e.g. to inspect one budget's model or sample predictions.
 
 ## Evaluating Models
 

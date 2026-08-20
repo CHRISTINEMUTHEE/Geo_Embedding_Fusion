@@ -12,9 +12,15 @@ tile subset (see Embed2HeightsDataModule.max_train_tiles) so budget=10 tiles are
 subset of budget=25's -- a genuine "adding more labels" sweep. Validation tiles are
 identical across every run in the sweep.
 
-Usage:
-    python scripts/label_efficiency_sweep.py --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml \\
-        --tile-counts 10 20 40 80 --epochs 20
+By default no per-run checkpoints/plots/visualizations are written -- only the final
+label_efficiency_results.csv and label_efficiency_curve.png. Pass --save-artifacts to
+also keep each run's full outputs/<experiment_name>/ (checkpoints, loss curve, sample
+visualizations) if you need to inspect a specific budget's model.
+
+Usage (one line -- safer to copy-paste than a backslash-continued command, which
+silently breaks if a trailing space survives the copy and zsh runs the first line
+alone, then tries to run "--tile-counts ..." as its own command):
+    python scripts/label_efficiency_sweep.py --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml --tile-counts 10 20 40 80 --epochs 20
 """
 import argparse
 import csv
@@ -36,8 +42,17 @@ def main():
     p.add_argument("--sweep-name", type=str, default=None,
                    help="Prefix for each run's experiment_name (default: base config's experiment_name)")
     p.add_argument("--epochs", type=int, help="Override epochs for every run in the sweep")
+    p.add_argument("--num-workers", type=int,
+                   help="Override num_workers for every run -- a sweep does many separate "
+                        "train() calls (more DataLoader worker spawn/teardown cycles than one "
+                        "run), which raises the odds of a known macOS hang at num_workers>0; "
+                        "pass 0 if a run in the sweep seems to hang")
     p.add_argument("--out-dir", type=str, default=None,
                    help="Where to write the sweep summary (default: outputs/<sweep-name>_sweep/)")
+    p.add_argument("--save-artifacts", action="store_true",
+                   help="Also save each run's checkpoints/loss-curve/visualizations under "
+                        "outputs/<experiment_name>/ (off by default -- a sweep only needs the "
+                        "final label-efficiency plot, not N full per-run artifact sets)")
     args = p.parse_args()
 
     base = load_config(args.config)
@@ -50,9 +65,11 @@ def main():
         overrides = {"max_train_tiles": n, "experiment_name": f"{sweep_name}_n{n}"}
         if args.epochs is not None:
             overrides["epochs"] = args.epochs
+        if args.num_workers is not None:
+            overrides["num_workers"] = args.num_workers
         config = load_config(args.config, overrides)
         print(f"\n=== label-efficiency sweep: budget={n} tiles -> experiment={config.experiment_name} ===")
-        _, metrics = train(config)
+        _, metrics = train(config, save_artifacts=args.save_artifacts)
         results.append({
             "requested_tiles": n,
             "actual_tiles": metrics["n_train_tiles"],

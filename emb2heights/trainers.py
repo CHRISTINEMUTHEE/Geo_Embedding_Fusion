@@ -227,12 +227,18 @@ def _run_epoch(model, loader, criterion, device, optimizer=None, desc=""):
 
 
 # REVIEW REQUIRED
-## Main entry point: config -> trained model + artifacts in outputs/<experiment_name>/
-def train(config):
+## Main entry point: config -> trained model + artifacts in outputs/<experiment_name>/.
+## save_artifacts=False skips every disk write (checkpoints, config.yaml, loss/height
+## curves, sample visualizations) and the visualize_results() forward passes -- metrics
+## are still computed and returned. For label_efficiency_sweep.py, which calls train()
+## once per tile budget and only needs the returned metrics dict, not N full per-run
+## artifact sets it would otherwise never look at.
+def train(config, save_artifacts=True):
     seed_everything(config.random_seed)
     device = get_device()
-    config.make_dirs()
-    config.save()
+    if save_artifacts:
+        config.make_dirs()
+        config.save()
 
     train_loader, val_loader = build_train_val_loaders(config)
 
@@ -284,30 +290,37 @@ def train(config):
         ## auxiliary landcover term and isn't in meters.
         if metrics["rmse_height"] < best_height_rmse:
             best_height_rmse = metrics["rmse_height"]
-            torch.save(model.state_dict(), config.best_model_path)
-            print(f"  New best (val height RMSE {metrics['rmse_height']:.3f}m) -> {config.best_model_path}")
+            if save_artifacts:
+                torch.save(model.state_dict(), config.best_model_path)
+                print(f"  New best (val height RMSE {metrics['rmse_height']:.3f}m) -> {config.best_model_path}")
+            else:
+                print(f"  New best (val height RMSE {metrics['rmse_height']:.3f}m)")
 
         if epoch % 10 == 0:
             print("  Challenge-style evaluation:")
             for name, value in metrics.items():
                 print(f"    {name}: {value:.4f}")
 
-    torch.save(model.state_dict(), config.last_model_path)
+    if save_artifacts:
+        torch.save(model.state_dict(), config.last_model_path)
 
-    plt.figure(figsize=(10, 5))
-    plt.plot(train_losses, label="Train Loss")
-    plt.plot(val_losses, label="Validation Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("MAE")
-    plt.legend()
-    plt.savefig(config.loss_curve_path)
-    plt.close()
+        plt.figure(figsize=(10, 5))
+        plt.plot(train_losses, label="Train Loss")
+        plt.plot(val_losses, label="Validation Loss")
+        plt.xlabel("Epoch")
+        plt.ylabel("MAE")
+        plt.legend()
+        plt.savefig(config.loss_curve_path)
+        plt.close()
 
-    plot_height_rmse_vs_epoch(epochs_seen, height_rmse_overall, height_rmse_building,
-                              height_rmse_vegetation, config.height_curve_path)
+        plot_height_rmse_vs_epoch(epochs_seen, height_rmse_overall, height_rmse_building,
+                                  height_rmse_vegetation, config.height_curve_path)
 
-    visualize_results(model, val_loader.dataset, config, device)
-    print(f"Artifacts saved under {config.experiment_dir}")
+        visualize_results(model, val_loader.dataset, config, device)
+        print(f"Artifacts saved under {config.experiment_dir}")
+    else:
+        print("Training complete (save_artifacts=False -- no checkpoints, plots, or visualizations written)")
+
     return model, {"train_losses": train_losses, "val_losses": val_losses,
                    "best_val_loss": min(val_losses),
                    "n_train_tiles": len(train_loader.dataset),
