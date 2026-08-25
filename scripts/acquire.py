@@ -10,9 +10,12 @@ Usage:
     # baseline needs: labels (2.1 GB) + alphaearth (33.9 GB)
     python scripts/acquire.py
     # other sources later:
-    python scripts/acquire.py --dirs data/train/tessera_emb data/test/tessera_test_emb
+    python scripts/acquire.py --dirs data/train/tessera_emb
     # verify what's on disk without downloading:
     python scripts/acquire.py --check
+
+Only data/train/* is listed in DEFAULT_DIRS -- data/test/* embeddings have no
+labels in the catalog, so they're not useful for local training/evaluation.
 """
 import argparse
 import os
@@ -26,20 +29,11 @@ CATALOG = Path.home() / ".cache/eotdl/datasets/embed2heights/catalog.v1.parquet"
 DEFAULT_DIRS = [
     "data/train/labels",
     "data/train/alphaearth_emb",
-    "data/test/alphaearth_test_emb",
-    # Tessera
     "data/train/tessera_emb",
-    "data/test/tessera_test_emb",
-    # Thor S1
     "data/train/thor_s1_emb",
-    "data/test/thor_test_s1_emb",
     "data/train/thor_s2_emb",
-    "data/test/thor_test_s2_emb",
-    # Terramind S1s
     "data/train/terramind_s1_emb",
-    "data/test/terramind_test_s1_emb",
     "data/train/terramind_s2_emb",
-    "data/test/terramind_test_s2_emb",
 ]
 
 
