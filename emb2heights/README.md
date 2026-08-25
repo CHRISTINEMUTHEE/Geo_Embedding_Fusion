@@ -45,7 +45,15 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   `config.data_root` is set, otherwise the legacy `datasets.py` split.
   `evaluate_metrics()` reports both `mae_height`/`rmse_height` (unmasked, every pixel —
   the headline RQ1/RQ2 number) and `rmse_building`/`rmse_vegetation` (masked to where
-  that class is present — diagnostic). `plot_height_rmse_vs_epoch` is a training-progress
+  that class is present — diagnostic). IoU (`iou_building`/`iou_vegetation`/`iou_water`)
+  is pooled as raw intersection/union counts across the *whole* validation set and
+  divided once — not computed per-batch and averaged, which is batch-size-sensitive
+  (verified: same val tiles, same predictions, `batch_size` 4 vs 23 alone swung
+  `iou_building` 0.28→0.36). `binary_iou_from_channel` still returns a single-call ratio
+  (useful standalone, e.g. in tests) but `evaluate_metrics` uses `_mask_counts()` directly
+  to accumulate instead. `iou_threshold` and `height_mask_threshold` are separate config
+  fields — they used to be one shared `threshold`, so changing one silently changed the
+  other. `plot_height_rmse_vs_epoch` is a training-progress
   curve (one run, epoch by epoch) — not a label-efficiency curve; that needs separate
   runs at different `max_train_tiles`, compared by best accuracy (see
   `scripts/label_efficiency_sweep.py`)

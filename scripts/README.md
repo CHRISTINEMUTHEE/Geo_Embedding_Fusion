@@ -7,7 +7,8 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 - `train.py`: Train models using configuration files (see `emb2heights/trainers.py`)
 - `label_efficiency_sweep.py`: Train the same config at several training-tile budgets,
   compare best achieved height accuracy across them (RQ2)
-- `evaluate.py`: Evaluate trained models on test data (template, not yet adapted)
+- `evaluate_sources.py`: Evaluate existing checkpoints (no training) across embedding
+  sources into one comparison table — the evaluation script for this pipeline
 - `infer.py`: Run inference (template, not yet adapted)
 - `acquire.py`: Download the **full** dataset from EOTDL (110+ GB; needs an EOTDL login and a
   pre-staged catalog at `~/.cache/eotdl/datasets/embed2heights/catalog.v1.parquet`)
@@ -91,9 +92,21 @@ outputs too, e.g. to inspect one budget's model or sample predictions.
 
 ## Evaluating Models
 
-`evaluate.py` is a template carried over from the original project scaffold and is not
-adapted to this pipeline — it imports modules (`TrainerConfig`, `datamodules.get_datamodule`,
-`trainers.get_task`) that no longer exist and will fail on import. Not usable yet.
+`evaluate_sources.py` loads each config's own `best_model.pth` (no training) and runs
+`evaluate_metrics()` (pooled IoU + height MAE/RMSE, see `emb2heights/README.md`) on
+that config's own validation set, writing one row per source to a CSV. Configs with
+no checkpoint yet are skipped, not errored on. Only the validation set is used — the
+HF catalog's test split (`data/test/*_test_*_emb/`) is embeddings-only with no label
+assets, so there's nothing to locally score a test set against; the challenge scores
+test submissions itself.
+
+```bash
+python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml configs/0_baselines/04_tessera_subset_datamodule.yaml
+# Produces: outputs/evaluation_table.csv
+```
+
+(The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,
+`trainers.get_task`, none of which exist anymore — has been removed; this replaces it.)
 
 ## Extending Scripts
 

@@ -30,6 +30,10 @@ def parse_args():
     parser.add_argument("--bg_weight", type=float)
     parser.add_argument("--max_train_tiles", type=int,
                         help="Cap training tiles (val stays full) -- for a label-efficiency sweep, see scripts/label_efficiency_sweep.py")
+    parser.add_argument("--iou_threshold", type=float,
+                        help="Presence cutoff for building/vegetation/water IoU (decoupled from --height_mask_threshold)")
+    parser.add_argument("--height_mask_threshold", type=float,
+                        help="Presence cutoff for which pixels count toward rmse_building/rmse_vegetation")
     return parser.parse_args()
 
 

@@ -27,6 +27,19 @@ DEFAULT_DIRS = [
     "data/train/labels",
     "data/train/alphaearth_emb",
     "data/test/alphaearth_test_emb",
+    # Tessera
+    "data/train/tessera_emb",
+    "data/test/tessera_test_emb",
+    # Thor S1
+    "data/train/thor_s1_emb",
+    "data/test/thor_test_s1_emb",
+    "data/train/thor_s2_emb",
+    "data/test/thor_test_s2_emb",
+    # Terramind S1s
+    "data/train/terramind_s1_emb",
+    "data/test/terramind_test_s1_emb",
+    "data/train/terramind_s2_emb",
+    "data/test/terramind_test_s2_emb",
 ]
 
 

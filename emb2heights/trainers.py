@@ -89,15 +89,33 @@ def build_scheduler(config, optimizer):
 # ---------------------------------------------------------
 # Evaluation (challenge-style metrics)
 # ---------------------------------------------------------
-def binary_iou_from_channel(pred, target, threshold=0.1, eps=1e-6):
-    """pred, target: [B, H, W] fraction maps; IoU of the thresholded masks."""
+def _mask_counts(pred, target, threshold):
+    """Raw (intersection, union) pixel counts for pred/target masks thresholded at
+    `threshold`. Split out from binary_iou_from_channel so evaluate_metrics can
+    accumulate counts across an entire validation set and divide once, instead of
+    computing a ratio per batch and averaging ratios (see evaluate_metrics docstring
+    for why that's wrong)."""
     pred_mask = pred > threshold
     target_mask = target > threshold
-    intersection = (pred_mask & target_mask).sum().float()
-    union = (pred_mask | target_mask).sum().float()
+    intersection = (pred_mask & target_mask).sum()
+    union = (pred_mask | target_mask).sum()
+    return intersection, union
+
+
+def binary_iou_from_channel(pred, target, threshold=0.1, eps=1e-6):
+    """pred, target: [B, H, W] fraction maps; single-call IoU of the thresholded masks
+    -- pools everything passed into it into one ratio. Fine for a one-off comparison
+    of two tensors. NOT what evaluate_metrics uses for the validation-set-wide IoU:
+    calling this once per batch and averaging the per-batch ratios is batch-size-
+    sensitive (verified: same val tiles, same predictions, batch_size 4 vs 23 alone
+    swung the result from 0.28 to 0.36 -- a ~26% relative range) because each batch's
+    ratio gets equal weight regardless of how many positive pixels it actually
+    contained. evaluate_metrics instead accumulates raw counts via _mask_counts()
+    across the whole loader and divides once."""
+    intersection, union = _mask_counts(pred, target, threshold)
     if union == 0:
         return torch.tensor(float("nan"), device=pred.device)
-    return (intersection + eps) / (union + eps)
+    return (intersection.float() + eps) / (union.float() + eps)
 
 
 def masked_rmse(pred_height, true_height, mask=None):
@@ -119,14 +137,22 @@ def masked_mae(pred_height, true_height, mask=None):
 
 
 # REVIEW REQUIRED
-def evaluate_metrics(model, val_loader, device, height_norm, threshold=0.1):
+## iou_threshold and height_mask_threshold are decoupled on purpose -- they used to be
+## one shared `threshold` parameter, so changing it for one silently changed the other.
+def evaluate_metrics(model, val_loader, device, height_norm, iou_threshold=0.3, height_mask_threshold=0.3):
     model.eval()
+    ## IoU: intersection/union accumulated as raw pixel counts across the WHOLE
+    ## validation set, divided once at the end -- not computed per-batch and averaged.
+    ## A per-batch ratio, mean-of-batches, is sensitive to batch_size and batch
+    ## composition (verified: same val tiles, same predictions, batch_size 4 vs 23
+    ## alone swung iou_building from 0.28 to 0.36). Pooling counts first removes that
+    ## -- the result no longer depends on how validation happens to be batched.
+    iou_counts = {c: [0, 0] for c in ("building", "vegetation", "water")}  # [intersection, union]
     ## mae_height/rmse_height: unmasked, every pixel -- the primary RQ1/RQ2 metric.
     ## rmse_building/rmse_vegetation: masked to where that class is present in the
     ## target -- diagnostic (where does height error concentrate), not the headline number.
-    scores = {k: [] for k in ["iou_building", "iou_vegetation", "iou_water",
-                              "mae_height", "rmse_height",
-                              "rmse_building", "rmse_vegetation"]}
+    height_scores = {k: [] for k in ["mae_height", "rmse_height", "rmse_building", "rmse_vegetation"]}
+
     with torch.no_grad():
         for imgs, targets in val_loader:
             imgs, targets = imgs.to(device), targets.to(device)
@@ -138,18 +164,27 @@ def evaluate_metrics(model, val_loader, device, height_norm, threshold=0.1):
             pred_height = outputs[:, 3] * height_norm
             true_height = targets[:, 3] * height_norm
 
-            scores["iou_building"].append(binary_iou_from_channel(pred[:, 0], true[:, 0], threshold))
-            scores["iou_vegetation"].append(binary_iou_from_channel(pred[:, 1], true[:, 1], threshold))
-            scores["iou_water"].append(binary_iou_from_channel(pred[:, 2], true[:, 2], threshold))
-            scores["mae_height"].append(masked_mae(pred_height, true_height))
-            scores["rmse_height"].append(masked_rmse(pred_height, true_height))
-            scores["rmse_building"].append(masked_rmse(pred_height, true_height, true[:, 0] > threshold))
-            scores["rmse_vegetation"].append(masked_rmse(pred_height, true_height, true[:, 1] > threshold))
+            for i, c in enumerate(("building", "vegetation", "water")):
+                intersection, union = _mask_counts(pred[:, i], true[:, i], iou_threshold)
+                iou_counts[c][0] += intersection.item()
+                iou_counts[c][1] += union.item()
 
-    return {k: torch.nanmean(torch.stack(v)).item() for k, v in scores.items()}
+            height_scores["mae_height"].append(masked_mae(pred_height, true_height))
+            height_scores["rmse_height"].append(masked_rmse(pred_height, true_height))
+            height_scores["rmse_building"].append(
+                masked_rmse(pred_height, true_height, true[:, 0] > height_mask_threshold))
+            height_scores["rmse_vegetation"].append(
+                masked_rmse(pred_height, true_height, true[:, 1] > height_mask_threshold))
+
+    results = {}
+    for c, (intersection, union) in iou_counts.items():
+        results[f"iou_{c}"] = (intersection / union) if union > 0 else float("nan")
+    for name, values in height_scores.items():
+        results[name] = torch.nanmean(torch.stack(values)).item()
+    return results
 
 
-def visualize_results(model, dataset, config, device, num_samples=10):
+def visualize_results(model, dataset, config, device, num_samples=5):
     """Side-by-side true vs predicted maps for a few random samples."""
     model.eval()
     indices = random.sample(range(len(dataset)), min(num_samples, len(dataset)))
@@ -165,6 +200,8 @@ def visualize_results(model, dataset, config, device, num_samples=10):
 
             pred[3] *= h_norm
             true[3] *= h_norm
+            ## Per-sample overall (unmasked) height MAE, for a quick sanity read next to the maps
+            sample_mae = float(np.abs(pred[3] - true[3]).mean())
 
             fig, axs = plt.subplots(2, 4, figsize=(20, 10))
             for c in range(4):
@@ -175,7 +212,7 @@ def visualize_results(model, dataset, config, device, num_samples=10):
                 axs[1, c].imshow(pred[c], vmin=vmin, vmax=vmax)
                 axs[1, c].set_title(f"Predicted {target_names[c]}")
                 axs[1, c].axis("off")
-            plt.suptitle(f"Sample {i + 1} - True vs Predicted")
+            plt.suptitle(f"Sample {i + 1} - True vs Predicted (height MAE: {sample_mae:.3f}m)")
             plt.savefig(config.viz_output_dir / f"visualization_{i}.png")
             plt.close(fig)
 
@@ -193,10 +230,10 @@ def plot_height_rmse_vs_epoch(epochs, rmse_overall, rmse_building, rmse_vegetati
     ax.plot(epochs, rmse_vegetation, marker="s", linestyle="--", alpha=0.7, label="Vegetation height RMSE")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Height RMSE (m) — lower is better")
-    ax.set_title("Height accuracy vs training epoch (this run)")
+    ax.set_title("Height accuracy vs training epoch )")
     ax.legend()
     ax.grid(True, alpha=0.3)
-    fig.savefig(path)
+    fig.savefig(path) 
     plt.close(fig)
 
 
@@ -275,7 +312,9 @@ def train(config, save_artifacts=True):
         print(f"{desc} - train MAE: {train_loss:.4f} - val MAE: {val_loss:.4f}")
 
         metrics = evaluate_metrics(model, val_loader, device,
-                                   config.height_normalization_constant)
+                                   config.height_normalization_constant,
+                                   iou_threshold=config.iou_threshold,
+                                   height_mask_threshold=config.height_mask_threshold)
         epochs_seen.append(epoch)
         height_mae_overall.append(metrics["mae_height"])
         height_rmse_overall.append(metrics["rmse_height"])
@@ -329,4 +368,9 @@ def train(config, save_artifacts=True):
                    "height_rmse_overall": height_rmse_overall,
                    "best_height_rmse_overall": min(height_rmse_overall),
                    "height_rmse_building": height_rmse_building,
-                   "height_rmse_vegetation": height_rmse_vegetation}
+                   "height_rmse_vegetation": height_rmse_vegetation,
+                   ## last epoch's IoU (metrics is already computed once per epoch above --
+                   ## no need for a second evaluate_metrics() pass over val_loader here)
+                   "iou_building": metrics["iou_building"],
+                   "iou_vegetation": metrics["iou_vegetation"],
+                   "iou_water": metrics["iou_water"]}

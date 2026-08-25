@@ -59,16 +59,10 @@ That creates `.venv` (Python 3.12) with all project packages. Run commands with 
 $ uv run python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
 ```
 
-* Evaluate the model:
+* Evaluate existing checkpoints (see `scripts/README.md`):
 
 ```console
-$ uv run python scripts/evaluate.py --model-path model_runs/experiment_name/best.ckpt --test-data path/to/test
-```
-
-* Analyze errors:
-
-```console
-$ uv run python scripts/analyze.py --model-path model_runs/experiment_name/best.ckpt --test-data path/to/test
+$ uv run python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml
 ```
 
 * Document results in your tracking sheet
@@ -131,6 +125,9 @@ same change (see `AGENTS.md` §7).
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
 │   └── 0_baselines/    - Per-source LightUNet / EfficientDecoder YAMLs (full data + subset)
+├── slurm/              - Slurm job scripts for running on Unity (unity.rc.umass.edu)
+│   ├── train.slurm     - Single-GPU submission wrapper around scripts/train.py
+│   └── sweep.slurm     - Single-GPU submission wrapper around label_efficiency_sweep.py
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)
 │   ├── sources/        - Immutable raw inputs (never modify)

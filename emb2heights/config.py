@@ -77,6 +77,14 @@ class ExperimentConfig(BaseModel):
     ## coverage, ~70-75% of tiles near-zero) -- bg_weight downweights zero-label pixels
     ## in the landcover L1 so they don't drown out the sparse foreground signal.
     bg_weight: float = 0.05
+
+    # Evaluation thresholds -- decoupled on purpose: iou_threshold decides what counts
+    # as "present" for building/vegetation/water IoU; height_mask_threshold decides
+    # which pixels count toward rmse_building/rmse_vegetation. They used to be one
+    # shared value (changing one silently changed the other); same default (0.3) so
+    # splitting them didn't change existing behavior, just made it independently tunable.
+    iou_threshold: float = 0.3
+    height_mask_threshold: float = 0.3
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:
@@ -100,7 +108,7 @@ class ExperimentConfig(BaseModel):
 
     @property
     def height_curve_path(self) -> Path:
-        return self.experiment_dir / "height_rmse_vs_labels.png"
+        return self.experiment_dir / "height_rmse_vs_epochs.png"
 
     @property
     def config_log_path(self) -> Path:
