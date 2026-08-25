@@ -5,7 +5,7 @@
 # (it already takes --config as a named flag, not a bare positional), so pass its
 # full CLI through directly:
 #
-#   sbatch slurm/sweep.slurm --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml \
+#   sbatch slurm/sweep.slurm --config configs/0_baselines/09_alphaearth_datamodule.yaml \
 #       --tile-counts 10 20 40 80 --epochs 20
 #
 # One line is safer to copy-paste (see scripts/README.md on backslash-continuation
@@ -22,11 +22,7 @@
 
 set -euo pipefail
 
-cd "$SLURM_SUBMIT_DIR"
-mkdir -p slurm/logs
-
-module load uv 2>/dev/null || true  # falls back to a uv already on PATH
-uv sync --group dev
+source slurm/env.sh
 
 # A sweep runs one train() call per tile budget in the same process/job -- more
 # DataLoader worker spawn/teardown cycles than a single training run, which raises

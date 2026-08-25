@@ -1,0 +1,23 @@
+# Full-data baseline: LightUNet on Tessera pixel embeddings (128ch).
+# Same recipe as 09_alphaearth_datamodule; only the embedding source changes.
+experiment_name: "10_tessera_datamodule"
+data_root: "data"
+embedding_source: "tessera"
+
+model_name: "lightunet"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 32
+patch_size: 128
+num_workers: 4
+epochs: 30
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.3
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1

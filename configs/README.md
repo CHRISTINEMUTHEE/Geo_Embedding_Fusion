@@ -14,11 +14,11 @@ configs/
 └── ...                  # Additional research directions
 ```
 
-`0_baselines/` currently:
+`0_baselines/` currently (see that directory's README.md for the file-by-file list):
 
-- `01_alphaearth_lightunet.yaml` / `02_tessera_lightunet.yaml` — full-data LightUNet, legacy random split
-- `03_alphaearth_subset_datamodule.yaml` / `04_tessera_subset_datamodule.yaml` — LightUNet on `data/subset/` (pixel-aligned sources)
-- `05_thor_s1_subset_datamodule.yaml` / `06_thor_s2_subset_datamodule.yaml` / `07_terramind_s1_subset_datamodule.yaml` / `08_terramind_s2_subset_datamodule.yaml` — EfficientDecoder on `data/subset/` (patch-token sources; S1 and S2 are separate `embedding_source` values, there is no combined `thor` or `terramind`)
+- `01` / `02` — full-data LightUNet, legacy random split
+- `03`–`08` — DataModule on `data/subset/` (smoke)
+- `09`–`14` — DataModule on the full training split (`data/`, from `scripts/acquire.py`)
 
 ## Creating New Experiments
 

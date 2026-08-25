@@ -1,5 +1,5 @@
 """
-Region-grouped data loading for the embed2heights subset.
+Region-grouped data loading for embed2heights (full split or data/subset/).
 
 Why this exists alongside datasets.py: the challenge tiles carry no coordinates, so the only
 geographic grouping available is the anonymized region code. Splitting whole regions into

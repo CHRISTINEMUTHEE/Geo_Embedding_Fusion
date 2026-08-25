@@ -56,7 +56,7 @@ That creates `.venv` (Python 3.12) with all project packages. Run commands with 
 * Train a baseline model:
 
 ```console
-$ uv run python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
+$ uv run python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml
 ```
 
 * Evaluate existing checkpoints (see `scripts/README.md`):
@@ -118,14 +118,17 @@ same change (see `AGENTS.md` §7).
 │   ├── trainers.py     - Plain PyTorch training loop, metrics, visualization
 │   └── cli.py          - Command-line entry points
 ├── data/               - Local datasets (gitignored)
+│   ├── manifest.csv    - Full-split tile index written by scripts/acquire.py
 │   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv
 ├── scripts/            - Runnable scripts (train, evaluate, infer, acquire)
-│   ├── acquire.py      - Full dataset from EOTDL (110+ GB, needs login)
+│   ├── acquire.py      - Full training split from the HF mirror (~110 GB)
 │   └── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
 │   └── 0_baselines/    - Per-source LightUNet / EfficientDecoder YAMLs (full data + subset)
 ├── slurm/              - Slurm job scripts for running on Unity (unity.rc.umass.edu)
+│   ├── env.sh          - Shared uv/cache/data-symlink setup for the jobs below
+│   ├── acquire.slurm   - CPU job: scripts/acquire.py onto /work
 │   ├── train.slurm     - Single-GPU submission wrapper around scripts/train.py
 │   └── sweep.slurm     - Single-GPU submission wrapper around label_efficiency_sweep.py
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts

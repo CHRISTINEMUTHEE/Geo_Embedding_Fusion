@@ -10,12 +10,20 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 - `evaluate_sources.py`: Evaluate existing checkpoints (no training) across embedding
   sources into one comparison table — the evaluation script for this pipeline
 - `infer.py`: Run inference (template, not yet adapted)
-- `acquire.py`: Download the **full** dataset from EOTDL (110+ GB; needs an EOTDL login and a
-  pre-staged catalog at `~/.cache/eotdl/datasets/embed2heights/catalog.v1.parquet`)
+- `acquire.py`: Download the **full** training split from the public HF mirror (~110 GB;
+  no login). Writes `data/manifest.csv` for the DataModule. On Unity use
+  `sbatch slurm/acquire.slurm` so files land on `/work` (home quota is 100 GB).
 - `acquire_subset.py`: Download a **<1% region-balanced subset** (~1.4 GB) from the public
   Hugging Face mirror. No login required. This is the one to use for local development.
 
 ## Acquiring Data
+
+Full training split (all six sources + labels, ~110 GB) via the HF mirror:
+
+```bash
+sbatch slurm/acquire.slurm          # Unity: writes to /work, then data/manifest.csv
+python scripts/acquire.py --check   # verify what's on disk, rewrite the manifest
+```
 
 `acquire_subset.py` samples whole regions (the only geographic grouping the dataset exposes),
 downloads them, and writes a `manifest.csv` with per-tile QC:
@@ -39,17 +47,17 @@ python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \
 
 Already-downloaded files are skipped (resumable), so re-running with more `--sources` only
 fetches what's missing. Subset training configs in `configs/0_baselines/` (`03`–`08`) all
-point at the resulting `data/subset/`. Pixel-aligned sources use LightUNet (`03` AlphaEarth,
-`04` Tessera); patch-token sources use EfficientDecoder (`05`/`06` THOR S1/S2, `07`/`08`
-TerraMind S1/S2).
+point at the resulting `data/subset/`. Full-split counterparts (`09`–`14`) point at `data/`
+after `scripts/acquire.py`. Pixel-aligned sources use LightUNet (AlphaEarth, Tessera);
+patch-token sources use EfficientDecoder (THOR/TerraMind S1/S2).
 
 ## Training Models
 
 The `train.py` script trains a model from a YAML experiment config:
 
 ```bash
-# Standard training
-python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
+# Full-data DataModule baseline (needs scripts/acquire.py first)
+python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml
 
 # With overrides (quick smoke run)
 python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml --epochs 1 --batch_size 4

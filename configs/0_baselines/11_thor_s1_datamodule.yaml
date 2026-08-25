@@ -1,0 +1,24 @@
+# Full-data baseline: EfficientDecoder on THOR Sentinel-1 patch-token embeddings.
+# Tokens are 16x16x768, labels 256x256, so LightUNet cannot train. Same data_root
+# as 09 (full acquire.py split), not the subset smoke config 05.
+experiment_name: "11_thor_s1_datamodule"
+data_root: "data"
+embedding_source: "thor_s1"
+
+model_name: "efficientdecoder"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 8
+patch_size: 256
+num_workers: 4
+epochs: 30
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.3
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1
