@@ -109,8 +109,9 @@ assets, so there's nothing to locally score a test set against; the challenge sc
 test submissions itself.
 
 ```bash
-python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml configs/0_baselines/04_tessera_subset_datamodule.yaml
+python scripts/evaluate_sources.py --configs configs/0_baselines/*.yaml
 # Produces: outputs/evaluation_table.csv
+# On Unity: sbatch slurm/eval.slurm
 ```
 
 (The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,

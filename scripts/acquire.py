@@ -18,6 +18,8 @@ cannot hold ~110 GB).
 import argparse
 import csv
 import re
+import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -77,20 +79,34 @@ def missing_assets(assets, out_root):
             if not (out_root / rel).exists() or (out_root / rel).stat().st_size != size]
 
 
-def download_one(rel, size, dest):
+def download_one(rel, size, dest, retries=8):
     if dest.exists() and dest.stat().st_size == size:
         return rel
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".part")
-    with urllib.request.urlopen(HF + rel, timeout=120) as r, open(tmp, "wb") as f:
-        while chunk := r.read(1 << 20):
-            f.write(chunk)
-    actual = tmp.stat().st_size
-    if actual != size:
-        tmp.unlink(missing_ok=True)
-        raise IOError(f"{rel}: size mismatch (got {actual}, expected {size})")
-    tmp.replace(dest)
-    return rel
+    last_err = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(HF + rel, timeout=120) as r, open(tmp, "wb") as f:
+                while chunk := r.read(1 << 20):
+                    f.write(chunk)
+            actual = tmp.stat().st_size
+            if actual != size:
+                tmp.unlink(missing_ok=True)
+                raise IOError(f"{rel}: size mismatch (got {actual}, expected {size})")
+            tmp.replace(dest)
+            return rel
+        except urllib.error.HTTPError as e:
+            last_err = e
+            tmp.unlink(missing_ok=True)
+            if e.code != 429:
+                raise
+            time.sleep(min(120, 2 ** attempt))
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            last_err = e
+            tmp.unlink(missing_ok=True)
+            time.sleep(min(120, 2 ** attempt))
+    raise last_err
 
 
 # REVIEW REQUIRED
@@ -149,7 +165,11 @@ def write_manifest(out_root, dir_prefixes):
         rec["width"] = 256
         rec["valid_frac"] = 1.0
         rec["label_nonzero_frac"] = 1.0
-        rec["keep"] = complete
+        ## keep=True if this tile has a label. Missing embedding sources are
+        ## filtered per-config in Embed2HeightsDataModule (so AlphaEarth can
+        ## train on 2024 tiles while thor_s2 is still downloading).
+        rec["keep"] = bool(rec.get("label_path"))
+        rec["_complete"] = complete
         for src in SOURCES:
             rec.setdefault(f"{src}_path", "")
         rec.setdefault("label_path", "")
@@ -165,7 +185,9 @@ def write_manifest(out_root, dir_prefixes):
         w.writeheader()
         w.writerows(rows)
     kept = sum(1 for r in rows if r["keep"])
-    print(f"manifest: {man}  ({kept}/{len(rows)} tiles complete for {required})")
+    n_complete = sum(1 for r in rows if r["_complete"])
+    print(f"manifest: {man}  ({kept}/{len(rows)} tiles with labels, "
+          f"{n_complete} complete for {required})")
     return man
 
 
@@ -176,7 +198,7 @@ def main():
     parser.add_argument("--out", type=str, default=".",
                         help="Output root (files land under <out>/data/...)")
     parser.add_argument("--catalog", type=str, default=str(DEFAULT_CATALOG))
-    parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--check", action="store_true",
                         help="Only report what is complete/missing, download nothing")
     args = parser.parse_args()

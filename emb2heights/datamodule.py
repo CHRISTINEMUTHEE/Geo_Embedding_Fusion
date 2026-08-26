@@ -214,8 +214,13 @@ class Embed2HeightsDataModule:
 
     def setup(self):
         rows = read_manifest(self.manifest)
+        src_key = f"{self.source}_path"
+        rows = [r for r in rows if r.get("label_path") and r.get(src_key)]
         if not rows:
-            raise ValueError(f"No usable tiles in {self.manifest} (all rows have keep=False)")
+            raise ValueError(
+                f"No usable tiles in {self.manifest} for source={self.source} "
+                f"(need keep=True plus non-empty label_path and {src_key})"
+            )
         self.train_regions, self.val_regions = split_regions(rows, self.val_frac, self.seed)
 
         tr = [r for r in rows if r["region"] in set(self.train_regions)]
