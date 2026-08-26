@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
-data/
+data
 outputs/
+slurm/logs/
 *.log
 .claude/
+.venv/

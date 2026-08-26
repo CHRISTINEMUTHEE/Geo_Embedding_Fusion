@@ -5,14 +5,25 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 ## Main Scripts
 
 - `train.py`: Train models using configuration files (see `emb2heights/trainers.py`)
-- `evaluate.py`: Evaluate trained models on test data (template, not yet adapted)
+- `label_efficiency_sweep.py`: Train the same config at several training-tile budgets,
+  compare best achieved height accuracy across them (RQ2)
+- `evaluate_sources.py`: Evaluate existing checkpoints (no training) across embedding
+  sources into one comparison table — the evaluation script for this pipeline
 - `infer.py`: Run inference (template, not yet adapted)
-- `acquire.py`: Download the **full** dataset from EOTDL (110+ GB; needs an EOTDL login and a
-  pre-staged catalog at `~/.cache/eotdl/datasets/embed2heights/catalog.v1.parquet`)
+- `acquire.py`: Download the **full** training split from the public HF mirror (~110 GB;
+  no login). Writes `data/manifest.csv` for the DataModule. On Unity use
+  `sbatch slurm/acquire.slurm` so files land on `/work` (home quota is 100 GB).
 - `acquire_subset.py`: Download a **<1% region-balanced subset** (~1.4 GB) from the public
   Hugging Face mirror. No login required. This is the one to use for local development.
 
 ## Acquiring Data
+
+Full training split (all six sources + labels, ~110 GB) via the HF mirror:
+
+```bash
+sbatch slurm/acquire.slurm          # Unity: writes to /work, then data/manifest.csv
+python scripts/acquire.py --check   # verify what's on disk, rewrite the manifest
+```
 
 `acquire_subset.py` samples whole regions (the only geographic grouping the dataset exposes),
 downloads them, and writes a `manifest.csv` with per-tile QC:
@@ -20,19 +31,33 @@ downloads them, and writes a `manifest.csv` with per-tile QC:
 ```bash
 python scripts/acquire_subset.py --dry-run     # show selection and size, download nothing
 python scripts/acquire_subset.py --limit 6     # quick smoke test
-python scripts/acquire_subset.py               # full subset -> data/subset/
+python scripts/acquire_subset.py               # alphaearth only -> data/subset/
 ```
 
-Settings are pinned in `configs/data/subset_alphaearth.yaml`. Add `--sources alphaearth tessera`
-to pull TESSERA embeddings for the same tiles.
+Six sources are available (see `SOURCES` in the script): `alphaearth`, `tessera` (pixel-aligned,
+~17/~34 MB per tile) and `thor_s1`, `thor_s2`, `terramind_s1`, `terramind_s2` (patch-token
+embeddings, ~1 MB per tile — see `emb2heights.datamodule.PATCH_SOURCES`). A tile is only kept if
+it has every requested source, so pulling more sources for the *same* tiles needs a bigger
+`--max-gb`, not a smaller subset:
+
+```bash
+python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \
+    terramind_s1 terramind_s2 --max-gb 6
+```
+
+Already-downloaded files are skipped (resumable), so re-running with more `--sources` only
+fetches what's missing. Subset training configs in `configs/0_baselines/` (`03`–`08`) all
+point at the resulting `data/subset/`. Full-split counterparts (`09`–`14`) point at `data/`
+after `scripts/acquire.py`. Pixel-aligned sources use LightUNet (AlphaEarth, Tessera);
+patch-token sources use EfficientDecoder (THOR/TerraMind S1/S2).
 
 ## Training Models
 
 The `train.py` script trains a model from a YAML experiment config:
 
 ```bash
-# Standard training
-python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
+# Full-data DataModule baseline (needs scripts/acquire.py first)
+python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml
 
 # With overrides (quick smoke run)
 python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml --epochs 1 --batch_size 4
@@ -44,28 +69,53 @@ python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yam
 - `--experiment_name`, `--model_name`, `--batch_size`, `--patch_size`, `--epochs`,
   `--learning_rate`, `--weight_decay`, `--num_workers`, `--random_seed`: override
   the corresponding YAML value
+- `--loss_name`, `--w_height`, `--w_landcover`, `--bg_weight`: loss overrides (see
+  `emb2heights/losses.py`) — `--w_landcover 0.0` is the RQ3 ablation
+- `--max_train_tiles`: cap training tiles (val stays full) — one point of a
+  label-efficiency sweep; use `label_efficiency_sweep.py` to run the whole sweep
 
 Hyperparameter search (`--search_mode`, Optuna) was removed with the old template
 `train.py`; re-add it when the baseline pipeline is stable.
 
-## Evaluating Models
+## Label-Efficiency Sweep
 
-The `evaluate.py` script runs inference and computes metrics:
+`label_efficiency_sweep.py` trains a config once per training-tile budget (val fixed
+across all of them) and plots best achieved overall height RMSE against tiles used —
+the actual RQ2 curve, not a single run's epoch-by-epoch progress. Each run's
+checkpoints/loss-curve/visualizations are **not** saved by default — the sweep calls
+`train(config, save_artifacts=False)`, since only the final aggregate CSV/plot is
+normally wanted, not N full `outputs/<experiment_name>/` trees:
 
 ```bash
-python evaluate.py --model_path model_runs/experiment/best.ckpt --test_data path/to/test/data
+python scripts/label_efficiency_sweep.py --config configs/0_baselines/03_alphaearth_subset_datamodule.yaml --tile-counts 10 20 40 80 --epochs 20
+# Produces: outputs/<sweep-name>_sweep/label_efficiency_results.csv, label_efficiency_curve.png
 ```
 
-### Key Evaluation Options
+One line on purpose — a backslash-continued command silently breaks if a trailing
+space survives copy-paste; zsh then runs the first line alone and tries to run
+`--tile-counts ...` as its own command ("command not found"). If a run in the sweep
+hangs (see the known `num_workers` issue in `emb2heights/README.md`), add
+`--num-workers 0`. Add `--save-artifacts` to keep each run's full per-experiment
+outputs too, e.g. to inspect one budget's model or sample predictions.
 
-- `--model_path`: Path to model checkpoint (required)
-- `--test_data`: Path to test data (required)
-- `--config`: Path to original config file (optional)
-- `--output_dir`: Directory to save results (default: "evaluation_results")
-- `--batch_size`: Batch size for evaluation
-- `--save_predictions`: Save model predictions to disk
-- `--task_type`: Task type (base, segmentation, classification, regression)
-- `--gpu_id`: GPU ID to use for evaluation
+## Evaluating Models
+
+`evaluate_sources.py` loads each config's own `best_model.pth` (no training) and runs
+`evaluate_metrics()` (pooled IoU + height MAE/RMSE, see `emb2heights/README.md`) on
+that config's own validation set, writing one row per source to a CSV. Configs with
+no checkpoint yet are skipped, not errored on. Only the validation set is used — the
+HF catalog's test split (`data/test/*_test_*_emb/`) is embeddings-only with no label
+assets, so there's nothing to locally score a test set against; the challenge scores
+test submissions itself.
+
+```bash
+python scripts/evaluate_sources.py --configs configs/0_baselines/*.yaml
+# Produces: outputs/evaluation_table.csv
+# On Unity: sbatch slurm/eval.slurm
+```
+
+(The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,
+`trainers.get_task`, none of which exist anymore — has been removed; this replaces it.)
 
 ## Extending Scripts
 
