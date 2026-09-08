@@ -32,6 +32,8 @@ import pandas as pd
 import rasterio
 from tqdm import tqdm
 
+from emb2heights.datamodule import LABEL_CLASSES
+
 HF = "https://huggingface.co/datasets/troni21/esa_philab_embed2heights/resolve/main/"
 CATALOG = HF + "catalog.v1.parquet"
 
@@ -153,6 +155,10 @@ def qc_tile(tile, out_root, sources, min_valid):
         lab = s.read().astype(np.float32)
     row["height"], row["width"] = lab.shape[1], lab.shape[2]
     row["label_nonzero_frac"] = float(np.mean(np.any(lab != 0, axis=0)))
+    ## Per-class mean coverage (channels 0/1/2 -- see trainers.target_names) drives
+    ## stratified train/val splitting and the class_balance_boost training sampler.
+    for i, cls in enumerate(LABEL_CLASSES):
+        row[f"{cls}_frac"] = float(np.mean(lab[i]))
 
     valid_fracs = []
     for src in sources:

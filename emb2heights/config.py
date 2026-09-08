@@ -38,6 +38,17 @@ class ExperimentConfig(BaseModel):
     ## Caps training tiles only (val stays full) -- for a real label-efficiency sweep
     ## (RQ2), see scripts/label_efficiency_sweep.py, which sets this across several runs.
     max_train_tiles: Optional[int] = None
+    ## Region bucketing for split_regions() and the training WeightedRandomSampler --
+    ## a tile counts as carrying building/water if its mean coverage exceeds this.
+    stratify_threshold: float = 0.01
+    ## Training-time sampling weight multiplier for tiles with building/water present
+    ## (see datamodule.Embed2HeightsDataModule) -- oversamples the rare classes each
+    ## epoch. Does not touch the loss itself; that's losses.py's bg_weight.
+    class_balance_boost: float = 3.0
+    ## Standardize embedding bands per-channel using scripts/compute_band_stats.py's
+    ## <data_root>/band_stats.json (train-split-only stats). Falls back to raw
+    ## (unstandardized) values with a printed warning if that file doesn't exist yet.
+    standardize_bands: bool = True
 
     # Model
     model_name: ModelNameEnum = ModelNameEnum.lightunet
@@ -83,8 +94,8 @@ class ExperimentConfig(BaseModel):
     # which pixels count toward rmse_building/rmse_vegetation. They used to be one
     # shared value (changing one silently changed the other); same default (0.3) so
     # splitting them didn't change existing behavior, just made it independently tunable.
-    iou_threshold: float = 0.3
-    height_mask_threshold: float = 0.3
+    iou_threshold: float = 0.5
+    height_mask_threshold: float = 0.5
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:

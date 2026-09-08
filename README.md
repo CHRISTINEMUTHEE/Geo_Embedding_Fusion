@@ -119,10 +119,13 @@ same change (see `AGENTS.md` §7).
 │   └── cli.py          - Command-line entry points
 ├── data/               - Local datasets (gitignored)
 │   ├── manifest.csv    - Full-split tile index written by scripts/acquire.py
-│   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv
+│   ├── band_stats.json - Per-source channel mean/std from compute_band_stats.py
+│   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv, band_stats.json
 ├── scripts/            - Runnable scripts (train, evaluate, infer, acquire)
 │   ├── acquire.py      - Full training split from the HF mirror (~110 GB)
-│   └── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
+│   ├── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
+│   ├── compute_band_stats.py - Per-source train-split channel mean/std -> band_stats.json
+│   └── report_class_distribution.py - Per-source/split building/vegetation/water coverage
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
 │   └── 0_baselines/    - Per-source LightUNet / EfficientDecoder YAMLs (full data + subset)

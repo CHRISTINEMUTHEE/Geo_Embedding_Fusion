@@ -28,7 +28,19 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   `max_train_tiles` caps *training* tiles only (val stays full) via a fixed-seed shuffle-
   then-slice, so smaller budgets are nested subsets of larger ones — the mechanism a real
   label-efficiency sweep needs (see `scripts/label_efficiency_sweep.py`). Use this module
-  for new work
+  for new work. `split_regions()` buckets regions by whether they carry building/water
+  above `stratify_threshold` before the val_frac split, so a rare class can't be dropped
+  entirely into one side by an unlucky shuffle (falls back to a plain random split when
+  the manifest lacks `<cls>_frac` columns — every region lands in one bucket, same as
+  before). `Embed2HeightsDataModule.train_dataloader()` also oversamples tiles with
+  building/water present via `class_balance_boost` (a `WeightedRandomSampler`, not a loss
+  change — see `losses.py`'s `bg_weight` for that lever) and exposes `class_distribution`
+  (per-split mean coverage and %-tiles-present per class — see
+  `scripts/report_class_distribution.py`). `TilePairDataset`/`LatentTokenDataset` accept
+  `band_mean`/`band_std` for per-channel standardization; `Embed2HeightsDataModule` loads
+  them from `<data_root>/band_stats.json` automatically when `standardize_bands=True`
+  (default) — see `scripts/compute_band_stats.py`. Falls back to raw values with a
+  printed warning if that file doesn't exist yet
 - `losses.py`: `build_loss(config)` — `"mae"` (plain L1, all 4 channels equal) or
   `"weighted"` (`HeightLandcoverLoss`: height (channel 3, primary) and landcover
   (channels 0-2, auxiliary) weighted independently via `w_height`/`w_landcover` —

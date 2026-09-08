@@ -9,6 +9,10 @@ This directory contains scripts for training, evaluating, and analyzing models. 
   compare best achieved height accuracy across them (RQ2)
 - `evaluate_sources.py`: Evaluate existing checkpoints (no training) across embedding
   sources into one comparison table — the evaluation script for this pipeline
+- `compute_band_stats.py`: Per-source, per-channel mean/std over the training split
+  only, written to `<data_root>/band_stats.json` for embedding standardization
+- `report_class_distribution.py`: Per-source, per-split building/vegetation/water
+  coverage — checks the stratified split actually preserved rare classes in val
 - `infer.py`: Run inference (template, not yet adapted)
 - `acquire.py`: Download the **full** training split from the public HF mirror (~110 GB;
   no login). Writes `data/manifest.csv` for the DataModule. On Unity use
@@ -115,6 +119,42 @@ python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_s
 
 (The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,
 `trainers.get_task`, none of which exist anymore — has been removed; this replaces it.)
+
+## Band Standardization
+
+Raw embedding scales vary wildly across sources (verified on `data/subset`: AlphaEarth's
+dequantized mean range is [-0.43, 0.40], THOR-S2's is [-12743, 13900]) — without
+standardizing, RQ1's fusion-vs-best-single-source comparison partly just measures which
+source's raw scale suits the optimizer. `compute_band_stats.py` computes per-channel
+mean/std over the training split only (same `split_regions()` the DataModule uses, so
+val never leaks in) and writes `<data_root>/band_stats.json`:
+
+```bash
+python scripts/compute_band_stats.py --data-root data/subset
+# Produces: data/subset/band_stats.json
+```
+
+`Embed2HeightsDataModule` loads this automatically (`standardize_bands=True`, the
+config default) and applies `(x - mean) / std` per channel before nodata zeroing. If
+the json doesn't exist yet, training proceeds on raw values with a printed warning
+rather than failing — run this once per `data_root` before training.
+
+## Class Distribution & Stratified Splitting
+
+Building and water are rare at both the pixel level (~1-3% mean coverage) and the tile
+level (present in under a third of tiles in `data/subset`) — see
+`emb2heights/README.md` on how `split_regions()` and the training sampler handle this.
+`report_class_distribution.py` prints/writes each split's actual mean coverage and
+%-tiles-present per class, using the exact split each config's `train()` call would use:
+
+```bash
+python scripts/report_class_distribution.py --configs configs/0_baselines/0{3,4,5,6,7,8}_*.yaml
+# Produces: outputs/class_distribution.csv
+```
+
+Today every subset config shares one `data/subset/manifest.csv`, so this reports the
+same distribution for all 6 sources — it will only diverge if a source's tile
+completeness (`keep`) ever differs from the others.
 
 ## Extending Scripts
 

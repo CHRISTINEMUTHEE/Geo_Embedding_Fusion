@@ -35,10 +35,19 @@ def build_train_val_loaders(config):
             seed=config.random_seed,
             height_norm=config.height_normalization_constant,
             max_train_tiles=config.max_train_tiles,
+            stratify_threshold=config.stratify_threshold,
+            class_balance_boost=config.class_balance_boost,
+            standardize_bands=config.standardize_bands,
         ).setup()
         print(f"Region-grouped split -> {len(dm.train_regions)} train regions "
               f"({len(dm.train_ds)} tiles) / {len(dm.val_regions)} val regions "
               f"({len(dm.val_ds)} tiles)")
+        for split in ("train", "val"):
+            stats = dm.class_distribution[split]
+            summary = "  ".join(f"{cls}: mean={s['mean_frac']:.3f} "
+                                 f"present={s['pct_tiles_present']:.0f}%"
+                                 for cls, s in stats.items())
+            print(f"  {split} class distribution -> {summary}")
         return dm.train_dataloader(), dm.val_dataloader()
     return build_dataloaders(config)
 

@@ -23,8 +23,12 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+import rasterio
 from tqdm import tqdm
+
+from emb2heights.datamodule import LABEL_CLASSES
 
 HF = "https://huggingface.co/datasets/troni21/esa_philab_embed2heights/resolve/main/"
 DEFAULT_CATALOG = Path.home() / ".cache/emb2heights/catalog.v1.parquet"
@@ -131,6 +135,12 @@ def write_manifest(out_root, dir_prefixes):
                 rec["label_path"] = rel
                 year = p.stem.rsplit("_", 1)[-1]
                 rec["year"] = year if year.isdigit() else ""
+                ## Per-class mean coverage drives stratified splitting and the
+                ## class_balance_boost training sampler (see datamodule.py).
+                with rasterio.open(p) as s:
+                    lab = s.read().astype(np.float32)
+                for i, cls in enumerate(LABEL_CLASSES):
+                    rec[f"{cls}_frac"] = float(np.mean(lab[i]))
             else:
                 rec[f"{source}_path"] = rel
 
@@ -149,6 +159,8 @@ def write_manifest(out_root, dir_prefixes):
         rec["width"] = 256
         rec["valid_frac"] = 1.0
         rec["label_nonzero_frac"] = 1.0
+        for cls in LABEL_CLASSES:
+            rec.setdefault(f"{cls}_frac", 0.0)  # label missing/unreadable for this tile
         rec["keep"] = complete
         for src in SOURCES:
             rec.setdefault(f"{src}_path", "")
@@ -158,8 +170,8 @@ def write_manifest(out_root, dir_prefixes):
     man = out_root / "data" / "manifest.csv"
     man.parent.mkdir(parents=True, exist_ok=True)
     fields = ["tile_id", "region", "year", "label_path"] + [f"{s}_path" for s in SOURCES] + [
-        "height", "width", "valid_frac", "label_nonzero_frac", "keep",
-    ]
+        "height", "width", "valid_frac", "label_nonzero_frac",
+    ] + [f"{cls}_frac" for cls in LABEL_CLASSES] + ["keep"]
     with open(man, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
         w.writeheader()
