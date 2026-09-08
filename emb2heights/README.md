@@ -65,7 +65,11 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   (useful standalone, e.g. in tests) but `evaluate_metrics` uses `_mask_counts()` directly
   to accumulate instead. `iou_threshold` and `height_mask_threshold` are separate config
   fields — they used to be one shared `threshold`, so changing one silently changed the
-  other. `plot_height_rmse_vs_epoch` is a training-progress
+  other. `height_distribution()` collects true (and, given a model, predicted) height
+  values over nonzero-height validation pixels across the *whole* loader (mean/median
+  need pooled values, not a per-batch average) — used by `scripts/evaluate_sources.py`
+  for a shared `baseline` row plus each source's own predicted mean/median, to catch
+  systematic bias a middling RMSE alone can hide. `plot_height_rmse_vs_epoch` is a training-progress
   curve (one run, epoch by epoch) — not a label-efficiency curve; that needs separate
   runs at different `max_train_tiles`, compared by best accuracy (see
   `scripts/label_efficiency_sweep.py`)

@@ -112,6 +112,13 @@ HF catalog's test split (`data/test/*_test_*_emb/`) is embeddings-only with no l
 assets, so there's nothing to locally score a test set against; the challenge scores
 test submissions itself.
 
+The table also gets one shared `baseline` row (`true_mean_height`/`true_median_height`
+over nonzero-height validation pixels, no model involved — the same for every source
+here since they share one `data_root`'s split) plus, per source, that source's own
+`pred_mean_height`/`pred_median_height` at the identical pixels (`trainers.height_distribution`).
+This catches systematic bias RMSE alone can hide — e.g. an undertrained checkpoint with
+a middling RMSE can still be predicting well below the true average height everywhere.
+
 ```bash
 python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml configs/0_baselines/04_tessera_subset_datamodule.yaml
 # Produces: outputs/evaluation_table.csv

@@ -145,6 +145,44 @@ def masked_mae(pred_height, true_height, mask=None):
     return torch.mean((pred_height[mask] - true_height[mask]).abs())
 
 
+## Mean/median need the actual pooled values, not a per-batch average (a mean of
+## per-batch means isn't the overall mean unless every batch is the same size, and a
+## median can't be computed from per-batch medians at all) -- so this collects every
+## nonzero-height pixel across the whole validation set instead of reducing per batch.
+## model=None -> baseline only (ground truth; same for every source sharing a split).
+## model given -> also returns the model's own predicted mean/median, at the exact
+## same pixel locations, so "is this source's average prediction close to the true
+## average, or just its RMSE small" can be read directly off the evaluation table.
+def height_distribution(val_loader, height_norm, device, model=None):
+    if model is not None:
+        model.eval()
+    true_vals, pred_vals = [], []
+    with torch.no_grad():
+        for imgs, targets in val_loader:
+            imgs, targets = imgs.to(device), targets.to(device)
+            true_height = targets[:, 3] * height_norm
+            mask = true_height > 0
+            true_vals.append(true_height[mask])
+            if model is not None:
+                pred_height = model(imgs)[:, 3] * height_norm
+                pred_vals.append(pred_height[mask])
+
+    true_vals = torch.cat(true_vals)
+    if true_vals.numel() == 0:
+        result = {"true_mean_height": float("nan"), "true_median_height": float("nan")}
+    else:
+        result = {"true_mean_height": true_vals.mean().item(),
+                  "true_median_height": true_vals.median().item()}
+    if model is not None:
+        pred_vals = torch.cat(pred_vals)
+        if pred_vals.numel() == 0:
+            result["pred_mean_height"] = result["pred_median_height"] = float("nan")
+        else:
+            result["pred_mean_height"] = pred_vals.mean().item()
+            result["pred_median_height"] = pred_vals.median().item()
+    return result
+
+
 # REVIEW REQUIRED
 ## iou_threshold and height_mask_threshold are decoupled on purpose -- they used to be
 ## one shared `threshold` parameter, so changing it for one silently changed the other.
