@@ -133,6 +133,7 @@ same change (see `AGENTS.md` §7).
 │   ├── env.sh          - Shared uv/cache/data-symlink setup for the jobs below
 │   ├── acquire.slurm   - CPU job: scripts/acquire.py onto /work
 │   ├── train.slurm     - Single-GPU submission wrapper around scripts/train.py
+│   ├── eval.slurm      - Single-GPU wrapper around scripts/evaluate_sources.py
 │   └── sweep.slurm     - Single-GPU submission wrapper around label_efficiency_sweep.py
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)

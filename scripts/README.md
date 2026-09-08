@@ -120,8 +120,9 @@ This catches systematic bias RMSE alone can hide — e.g. an undertrained checkp
 a middling RMSE can still be predicting well below the true average height everywhere.
 
 ```bash
-python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml configs/0_baselines/04_tessera_subset_datamodule.yaml
+python scripts/evaluate_sources.py --configs configs/0_baselines/*.yaml
 # Produces: outputs/evaluation_table.csv
+# On Unity: sbatch slurm/eval.slurm
 ```
 
 (The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,

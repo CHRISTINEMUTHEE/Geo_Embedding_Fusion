@@ -10,7 +10,7 @@
 #
 #SBATCH --job-name=emb2heights-acquire
 #SBATCH --partition=cpu-preempt
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=16G
 #SBATCH --time=24:00:00
 #SBATCH --output=slurm/logs/%x_%j.out
@@ -22,4 +22,4 @@ source slurm/env.sh
 
 # env.sh already symlinks ./data -> $WORK_ROOT/data. --out is the repo root so
 # catalog ids data/train/... land in that symlink (i.e. on /work, not /home).
-uv run python scripts/acquire.py --out "$SLURM_SUBMIT_DIR" --workers "${SLURM_CPUS_PER_TASK:-8}" "$@"
+uv run python scripts/acquire.py --out "$SLURM_SUBMIT_DIR" --workers 2 "$@"
