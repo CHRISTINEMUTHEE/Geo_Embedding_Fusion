@@ -6,9 +6,18 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
 
 - `config.py`: `ExperimentConfig` (pydantic) — all experiment knobs, derived output
   paths as properties, `load_config()` for YAML + CLI overrides
-- `models.py`: model architectures (`LightUNet` for pixel-aligned sources, `EfficientDecoder`
+- `models.py`: model architectures (`LightUNet` for pixel-aligned sources, `EfficientEncoderDecoder`
   for 16x16 patch-token sources) and the `build_model(config, n_channels)` factory; input
-  channels are inferred from the data, not configured
+  channels are inferred from the data, not configured. `EfficientEncoderDecoder` is two regimes
+  stitched together: a real encoder-decoder over the native 16x16 grid (16->8->4->8->16,
+  with skip connections -- legitimate, since those intermediate feature maps genuinely
+  exist), then blind progressive upsampling 16->32->64->128->256 (unavoidable for any
+  architecture, since no embedding finer than 16x16 exists to skip from -- patch-token
+  sources' real resolution ceiling, not fixable by decoder design). Parameter count
+  (~1.68M) is matched to `LightUNet`'s (~2.16M) so a "patch-token sources underperform"
+  result can't be attributed to this network simply being smaller or weaker -- it was
+  ~590K (a bare squeeze + 4 plain upsamples, no encoder at all -- the original
+  "EfficientDecoder" name no longer fit once an encoder was added) before this widening
 - `datasets.py`: embedding/label file pairing (`find_file_pairs`),
   `PixelEmbeddingsDataset` (1:1 pixel embeddings like AlphaEarth/Tessera), and
   `build_dataloaders(config)`. **Known flaws** — it splits tiles at random (leaking

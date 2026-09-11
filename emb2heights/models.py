@@ -97,7 +97,7 @@ class LightUNet(nn.Module):
         return logits
 
 # ==========================================
-# 2. Efficient Decoder COMPONENTS
+# 2. Efficient Encoder Decoder COMPONENTS
 # ==========================================
 class StandardUpsampleBlock(nn.Module):
     '''Uses standard dense convolutions and GELU activation'''
@@ -116,29 +116,86 @@ class StandardUpsampleBlock(nn.Module):
         x = self.gelu(x)
         return x
 
-class EfficientDecoder(nn.Module):
-    '''Mempry efficient decoder for 16*16 -> 256*256 upsampling on M2 Max'''
-    def __init__(self, n_channels, n_classes):
+class ConvBlock(nn.Module):
+    '''Conv3x3 + BN + GELU -- EfficientEncoderDecoder's basic feature block (GELU, not
+    LightUNet's ReLU, to match the rest of this module's existing convention).'''
+    def __init__(self, in_channels, out_channels):
         super().__init__()
-        # The Squeeze : 768 -> 256 at 16*16 resolution to prevent memory explosion
-        self.bottleneck = nn.Sequential(
-            nn.Conv2d(n_channels, 256, kernel_size=1),
-            nn.BatchNorm2d(256),
-            nn.GELU()
+        self.block = nn.Sequential(
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
+            nn.GELU(),
         )
-        #Progressive Upsampling with channels as resolution doubles
-        self.up1 = StandardUpsampleBlock(256, 128)
-        self.up2 = StandardUpsampleBlock(128, 64)
-        self.up3 = StandardUpsampleBlock(64, 32)
-        self.up4 = StandardUpsampleBlock(32, 16)
-        # Prediction Head
-        ## padding=0: a 1x1 conv must not grow 256x256 to 258x258 (MAE needs pred==target HW)
-        self.head = nn.Conv2d(16, n_classes, kernel_size=1, padding=0)
-
 
     def forward(self, x):
-        x = self.bottleneck(x)
-        x = self.up1(x)
+        return self.block(x)
+
+
+class EfficientEncoderDecoder(nn.Module):
+    '''Encoder-decoder for 16x16 patch-token embeddings (TerraMind/THOR), two regimes
+    stitched together:
+
+    1. A real encoder-decoder over the native 16x16 grid (16->8->4->8->16, with
+       skip connections) -- legitimate multi-scale feature fusion across
+       neighbouring tokens, since those intermediate 8x8/4x4 feature maps genuinely
+       exist inside the network, unlike anything finer than 16x16.
+    2. Blind progressive upsampling 16->32->64->128->256 -- unavoidable for *any*
+       architecture, since no embedding finer than the native 16x16 grid exists to
+       skip from. This is patch-token sources' real, irreducible resolution
+       ceiling; no architecture change removes it.
+
+    Parameter count is matched to LightUNet's (~2.16M) so a "patch-token sources
+    underperform" result can't be attributed to this network simply being smaller
+    or weaker than the one pixel-aligned sources get -- was ~590K before this
+    widening (5-stage blind squeeze-and-upsample, no encoder at all -- the
+    original "EfficientDecoder" name no longer fit once an encoder was added).
+    '''
+    def __init__(self, n_channels, n_classes):
+        super().__init__()
+        ## Native-grid squeeze: n_channels -> 128 at 16x16. 1x1 (not 3x3) -- a 3x3 here
+        ## costs 9x more per parameter for the same effect (no neighbours to mix yet,
+        ## enc1 right after does that), and this line item alone would otherwise be
+        ## the single biggest cost in the network at n_channels=768.
+        self.stem = nn.Sequential(
+            nn.Conv2d(n_channels, 128, kernel_size=1),
+            nn.BatchNorm2d(128),
+            nn.GELU(),
+        )
+
+        ## --- Regime 1: real encoder-decoder over the native 16x16 grid ---
+        self.enc1 = ConvBlock(128, 128)                # 16x16
+        self.pool1 = nn.MaxPool2d(2)                   # -> 8x8
+        self.enc2 = ConvBlock(128, 128)                # 8x8
+        self.pool2 = nn.MaxPool2d(2)                   # -> 4x4
+        self.bottleneck = ConvBlock(128, 128)          # 4x4 -- deepest point, all 256 tokens fused
+
+        self.dec2_up = StandardUpsampleBlock(128, 128)  # 4x4 -> 8x8
+        self.dec2 = ConvBlock(256, 128)                 # concat with enc2 skip
+        self.dec1_up = StandardUpsampleBlock(128, 128)  # 8x8 -> 16x16
+        self.dec1 = ConvBlock(256, 128)                 # concat with enc1 skip
+
+        ## --- Regime 2: blind upsampling past the native resolution (no skips possible) ---
+        self.up1 = StandardUpsampleBlock(128, 128)  # 16 -> 32
+        self.up2 = StandardUpsampleBlock(128, 64)   # 32 -> 64
+        self.up3 = StandardUpsampleBlock(64, 32)    # 64 -> 128
+        self.up4 = StandardUpsampleBlock(32, 32)    # 128 -> 256
+        # Prediction Head
+        ## padding=0: a 1x1 conv must not grow 256x256 to 258x258 (MAE needs pred==target HW)
+        self.head = nn.Conv2d(32, n_classes, kernel_size=1, padding=0)
+
+    def forward(self, x):
+        x = self.stem(x)                              # 16x16, 128ch
+
+        e1 = self.enc1(x)                              # 16x16
+        e2 = self.enc2(self.pool1(e1))                 # 8x8
+        b = self.bottleneck(self.pool2(e2))             # 4x4
+
+        d2 = self.dec2_up(b)                           # 8x8
+        d2 = self.dec2(torch.cat([d2, e2], dim=1))     # 8x8
+        d1 = self.dec1_up(d2)                          # 16x16
+        d1 = self.dec1(torch.cat([d1, e1], dim=1))     # 16x16
+
+        x = self.up1(d1)
         x = self.up2(x)
         x = self.up3(x)
         x = self.up4(x)
@@ -148,7 +205,7 @@ class EfficientDecoder(nn.Module):
 def build_model(config, n_channels):
     if config.model_name == "lightunet":
         return LightUNet(n_channels, config.n_classes)
-    elif config.model_name == "efficientdecoder":
-        return EfficientDecoder(n_channels, config.n_classes)
+    elif config.model_name == "efficientencoderdecoder":
+        return EfficientEncoderDecoder(n_channels, config.n_classes)
     raise ValueError(f"Model {config.model_name} not implemented")
 

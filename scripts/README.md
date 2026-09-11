@@ -53,7 +53,7 @@ Already-downloaded files are skipped (resumable), so re-running with more `--sou
 fetches what's missing. Subset training configs in `configs/0_baselines/` (`03`–`08`) all
 point at the resulting `data/subset/`. Full-split counterparts (`09`–`14`) point at `data/`
 after `scripts/acquire.py`. Pixel-aligned sources use LightUNet (AlphaEarth, Tessera);
-patch-token sources use EfficientDecoder (THOR/TerraMind S1/S2).
+patch-token sources use EfficientEncoderDecoder (THOR/TerraMind S1/S2).
 
 ## Training Models
 

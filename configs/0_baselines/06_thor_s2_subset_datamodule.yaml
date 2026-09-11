@@ -1,11 +1,11 @@
-# Baseline: EfficientDecoder on THOR Sentinel-2 patch-token embeddings.
+# Baseline: EfficientEncoderDecoder on THOR Sentinel-2 patch-token embeddings.
 # Optical counterpart of 05_thor_s1_subset_datamodule. Same 16x16 tokens / 256x256
-# labels, so EfficientDecoder not LightUNet. Smoke run on data/subset/.
+# labels, so EfficientEncoderDecoder not LightUNet. Smoke run on data/subset/.
 experiment_name: "06_thor_s2_subset_datamodule"
 data_root: "data/subset"
 embedding_source: "thor_s2"
 
-model_name: "efficientdecoder"
+model_name: "efficientencoderdecoder"
 n_classes: 4
 height_normalization_constant: 30.0
 

@@ -1,10 +1,10 @@
-# Full-data baseline: EfficientDecoder on TerraMind Sentinel-2 patch-token embeddings.
+# Full-data baseline: EfficientEncoderDecoder on TerraMind Sentinel-2 patch-token embeddings.
 # Optical counterpart of 13_terramind_s1_datamodule.
 experiment_name: "14_terramind_s2_datamodule"
 data_root: "data"
 embedding_source: "terramind_s2"
 
-model_name: "efficientdecoder"
+model_name: "efficientencoderdecoder"
 n_classes: 4
 height_normalization_constant: 30.0
 

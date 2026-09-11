@@ -1,10 +1,10 @@
-# Full-data baseline: EfficientDecoder on THOR Sentinel-2 patch-token embeddings.
+# Full-data baseline: EfficientEncoderDecoder on THOR Sentinel-2 patch-token embeddings.
 # Optical counterpart of 11_thor_s1_datamodule.
 experiment_name: "12_thor_s2_datamodule"
 data_root: "data"
 embedding_source: "thor_s2"
 
-model_name: "efficientdecoder"
+model_name: "efficientencoderdecoder"
 n_classes: 4
 height_normalization_constant: 30.0
 

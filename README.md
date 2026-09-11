@@ -128,7 +128,7 @@ same change (see `AGENTS.md` §7).
 │   └── report_class_distribution.py - Per-source/split building/vegetation/water coverage
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
-│   └── 0_baselines/    - Per-source LightUNet / EfficientDecoder YAMLs (full data + subset)
+│   └── 0_baselines/    - Per-source LightUNet / EfficientEncoderDecoder YAMLs (full data + subset)
 ├── slurm/              - Slurm job scripts for running on Unity (unity.rc.umass.edu)
 │   ├── env.sh          - Shared uv/cache/data-symlink setup for the jobs below
 │   ├── acquire.slurm   - CPU job: scripts/acquire.py onto /work

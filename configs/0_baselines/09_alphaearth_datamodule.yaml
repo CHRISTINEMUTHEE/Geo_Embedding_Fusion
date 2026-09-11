@@ -2,6 +2,9 @@
 # Same region-grouped DataModule as 03_alphaearth_subset_datamodule, but data_root
 # is the full training split (~2024 tiles) from scripts/acquire.py, not data/subset/.
 # 01_alphaearth_lightunet.yaml is the legacy random-split counterpart — prefer this.
+#
+# patch_size=256, batch_size quartered: see 03_alphaearth_subset_datamodule.yaml --
+# same fix, full-tile val instead of a center 128x128 crop (25% of the tile).
 experiment_name: "09_alphaearth_datamodule"
 data_root: "data"
 embedding_source: "alphaearth"
@@ -10,8 +13,8 @@ model_name: "lightunet"
 n_classes: 4
 height_normalization_constant: 30.0
 
-batch_size: 32
-patch_size: 128
+batch_size: 8
+patch_size: 256
 num_workers: 4
 epochs: 100 
 learning_rate: 2.0e-4

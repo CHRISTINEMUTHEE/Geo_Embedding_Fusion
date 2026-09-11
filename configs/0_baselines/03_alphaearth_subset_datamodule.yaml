@@ -4,6 +4,14 @@
 # emb2heights/datamodule.py. Points at the region-balanced subset already staged
 # locally under data/subset/ (76 usable tiles), so this runs today without the
 # full ~34 GB AlphaEarth download that 01_alphaearth_lightunet.yaml needs.
+#
+# patch_size=256 (not 128): AlphaEarth/Tessera are natively 256x256, pixel-aligned
+# with the 256x256 label. At patch_size=128, TilePairDataset's val crop takes a
+# fixed CENTER 128x128 window -- only 25% of each validation tile ever got scored,
+# while patch-token sources (native 16x16, patch_size=256 = no crop at all) were
+# always scored on the full tile. Every cross-source metric was comparing
+# different pixel populations. batch_size halved (256x256 is 4x the activation
+# memory of 128x128 per sample).
 experiment_name: "03_alphaearth_subset_datamodule"
 data_root: "data/subset"
 embedding_source: "alphaearth"
@@ -12,8 +20,8 @@ model_name: "lightunet"
 n_classes: 4
 height_normalization_constant: 30.0
 
-batch_size: 8
-patch_size: 128
+batch_size: 4
+patch_size: 256
 num_workers: 4
 epochs: 2
 learning_rate: 2.0e-4

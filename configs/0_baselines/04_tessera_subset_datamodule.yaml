@@ -1,6 +1,9 @@
 # Baseline: LightUNet on Tessera pixel embeddings, via Embed2HeightsDataModule.
 # Same recipe as 03_alphaearth_subset_datamodule (region-grouped split, 2-epoch
 # smoke run on data/subset/). Only the embedding source changes (128ch, pixel-aligned).
+#
+# patch_size=256, batch_size halved: see 03_alphaearth_subset_datamodule.yaml --
+# same fix, full-tile val instead of a center 128x128 crop (25% of the tile).
 experiment_name: "04_tessera_subset_datamodule"
 data_root: "data/subset"
 embedding_source: "tessera"
@@ -9,8 +12,8 @@ model_name: "lightunet"
 n_classes: 4
 height_normalization_constant: 30.0
 
-batch_size: 8
-patch_size: 128
+batch_size: 4
+patch_size: 256
 num_workers: 4
 epochs: 40
 learning_rate: 2.0e-4

@@ -16,7 +16,7 @@ from pydantic import BaseModel
 ## Closed set of choices only. Adding a model = value here + branch in models.build_model.
 class ModelNameEnum(str, Enum):
     lightunet = "lightunet"
-    efficientdecoder = "efficientdecoder"
+    efficientencoderdecoder = "efficientencoderdecoder"
 
 
 class ExperimentConfig(BaseModel):

@@ -1,5 +1,8 @@
 # Full-data baseline: LightUNet on Tessera pixel embeddings (128ch).
 # Same recipe as 09_alphaearth_datamodule; only the embedding source changes.
+#
+# patch_size=256, batch_size quartered: see 03_alphaearth_subset_datamodule.yaml --
+# same fix, full-tile val instead of a center 128x128 crop (25% of the tile).
 experiment_name: "10_tessera_datamodule"
 data_root: "data"
 embedding_source: "tessera"
@@ -8,8 +11,8 @@ model_name: "lightunet"
 n_classes: 4
 height_normalization_constant: 30.0
 
-batch_size: 32
-patch_size: 128
+batch_size: 8
+patch_size: 256
 num_workers: 4
 epochs: 100
 learning_rate: 2.0e-4
