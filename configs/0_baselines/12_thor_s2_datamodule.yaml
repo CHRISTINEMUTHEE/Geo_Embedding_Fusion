@@ -1,6 +1,6 @@
 # Full-data baseline: EfficientEncoderDecoder on THOR Sentinel-2 patch-token embeddings.
 # Optical counterpart of 11_thor_s1_datamodule.
-experiment_name: "12_thor_s2_datamodule"
+experiment_name: "12_thor_s2_datamodule_cosine_256_weighted_height_only"
 data_root: "data"
 embedding_source: "thor_s2"
 
@@ -18,6 +18,6 @@ val_split: 0.3
 random_seed: 42
 
 optimizer: "adam"
-scheduler: "plateau"
+scheduler: "cosine"
 patience: 10
 factor: 0.1

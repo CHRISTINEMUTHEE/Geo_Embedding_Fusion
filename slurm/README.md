@@ -9,6 +9,15 @@ Job submission scripts for running this project on Unity (unity.rc.umass.edu).
   `data/` -> `/work/pi_jtaneja_umass_edu/$USER/embed2heights/data`).
 - `acquire.slurm`: `cpu-preempt` job that runs `scripts/acquire.py` (full training
   split onto `/work`; extra args forwarded). Preempt is resumable — rerun sbatch.
+  `sbatch slurm/acquire.slurm --check` rewrites `data/manifest.csv` (including
+  `*_frac`) from files already on disk, no download.
+- `acquire_subset.slurm`: `cpu-preempt` job that runs `scripts/acquire_subset.py`
+  with all six sources into `data/subset/` (~6 GB). Extra args forwarded
+  (`--limit 6` for a tiny smoke).
+- `compute_band_stats.slurm`: `cpu-preempt` job that runs
+  `scripts/compute_band_stats.py`. No args → `--data-root data --val-frac 0.3
+  --seed 42`. Must run after the matching manifest has `*_frac`. Extra args
+  forwarded. Preempt-resumable (sources already in the json are skipped).
 - `train.slurm`: single-GPU `scripts/train.py` on `--partition=gpu` with
   `--constraint=sm_75` (torch 2.13+cu130 cannot run on gypsum TITAN X / M40 /
   1080 Ti or V100). First positional arg is the config path; extra args are
@@ -19,6 +28,10 @@ Job submission scripts for running this project on Unity (unity.rc.umass.edu).
   configs/0_baselines/*.yaml`; extra args are forwarded. Configs without a
   checkpoint are skipped. Job name `emb2heights-eval` (logs:
   `emb2heights-eval_<jobid>.out`).
+- `smoke.slurm`: 1-epoch pipeline check (LightUNet AlphaEarth +
+  EfficientEncoderDecoder THOR-S1, 8 tiles) then `evaluate_sources.py` into
+  `outputs/smoke_evaluation_table.csv`. Writes `outputs/smoke_*` — does not
+  overwrite `09`/`11` checkpoints. Submit after `data/band_stats.json` exists.
 - `sweep.slurm`: single-GPU `scripts/label_efficiency_sweep.py`. Forwards its full
   CLI as-is (`--config`, `--tile-counts`, ...).
 - `logs/`: created on first submission (`%x_%j.out`/`.err` per job), gitignored.
@@ -30,13 +43,19 @@ On the Unity login node:
 ```bash
 cd ~/work_experiments/Geo_Embedding_Fusion
 sbatch slurm/acquire.slurm
+sbatch slurm/acquire.slurm --check          # rebuild data/manifest.csv with *_frac
+sbatch slurm/acquire_subset.slurm
+sbatch slurm/compute_band_stats.slurm       # after the matching manifest exists
+sbatch slurm/compute_band_stats.slurm --data-root data/subset --val-frac 0.3 --seed 42
+sbatch slurm/smoke.slurm                # 1-epoch LightUNet + EfficientEncoderDecoder check
 sbatch slurm/train.slurm configs/0_baselines/09_alphaearth_datamodule.yaml
 sbatch slurm/eval.slurm
 sbatch slurm/sweep.slurm --config configs/0_baselines/09_alphaearth_datamodule.yaml --tile-counts 10 20 40 80 --epochs 20
 ```
 
-Wait for the acquire job to finish (and `data/manifest.csv` to exist) before
-submitting train/sweep. Check `squeue --me`; output lands in `slurm/logs/`.
+Wait for the acquire job to finish (and `data/manifest.csv` to have `*_frac`
+columns) **and** for `data/band_stats.json` to exist before submitting train/sweep.
+Check `squeue --me`; output lands in `slurm/logs/`.
 
 ## Notes
 

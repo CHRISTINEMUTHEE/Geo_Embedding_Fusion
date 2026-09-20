@@ -20,6 +20,6 @@ val_split: 0.3
 random_seed: 42
 
 optimizer: "adam"
-scheduler: "plateau"
+scheduler: "cosine"
 patience: 10
 factor: 0.1

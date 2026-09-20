@@ -5,13 +5,14 @@
 #
 # patch_size=256, batch_size quartered: see 03_alphaearth_subset_datamodule.yaml --
 # same fix, full-tile val instead of a center 128x128 crop (25% of the tile).
-experiment_name: "09_alphaearth_datamodule"
+experiment_name: "09_alphaearth_datamodule_cosine_256_weighted_height_only"
 data_root: "data"
 embedding_source: "alphaearth"
 
 model_name: "lightunet"
 n_classes: 4
 height_normalization_constant: 30.0
+
 
 batch_size: 8
 patch_size: 256
@@ -23,6 +24,8 @@ val_split: 0.3
 random_seed: 42
 
 optimizer: "adam"
-scheduler: "plateau"
+scheduler: "cosine"
 patience: 10
 factor: 0.1
+
+

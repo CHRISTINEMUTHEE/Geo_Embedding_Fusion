@@ -20,22 +20,46 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 - `acquire_subset.py`: Download a **<1% region-balanced subset** (~1.4 GB) from the public
   Hugging Face mirror. No login required. This is the one to use for local development.
 
+## Before training (required order)
+
+Stratified splits, rare-class oversampling, and band standardization all read the
+manifest's `building_frac` / `vegetation_frac` / `water_frac` columns and
+`<data_root>/band_stats.json`. Run these **in order** for each `data_root` before
+`train.py` or `evaluate_sources.py`:
+
+1. Write (or rebuild) the manifest so the `*_frac` columns exist.
+2. Compute train-split-only band stats with the **same** `--val-frac` / `--seed`
+   as the YAML configs for that root (`03`–`14`: `0.3` / `42`).
+3. Then train / evaluate.
+
+An old manifest without `*_frac` still loads (fractions default to 0.0) but the
+split is unstratified and the sampler never boosts building/water tiles. Missing
+`band_stats.json` trains on raw embeddings with a printed warning — do not start
+the real experiment table in that state.
+
 ## Acquiring Data
 
-Full training split (all six sources + labels, ~110 GB) via the HF mirror:
+Full training split (all six sources + labels, ~110 GB) via the HF mirror.
+`write_manifest` records per-class label coverage (`*_frac`) by reading every
+label GeoTIFF — that is why `--check` is the rebuild path when files are already
+on disk:
 
 ```bash
-sbatch slurm/acquire.slurm          # Unity: writes to /work, then data/manifest.csv
-python scripts/acquire.py --check   # verify what's on disk, rewrite the manifest
+sbatch slurm/acquire.slurm          # Unity: download onto /work, then data/manifest.csv
+sbatch slurm/acquire.slurm --check  # no download; rewrite data/manifest.csv with *_frac
+python scripts/acquire.py --check   # same rebuild, from a login/dev machine
 ```
 
 `acquire_subset.py` samples whole regions (the only geographic grouping the dataset exposes),
-downloads them, and writes a `manifest.csv` with per-tile QC:
+downloads them, and writes `data/subset/manifest.csv` with per-tile QC **and** the same
+`*_frac` columns. Re-running with the same `--seed` / `--max-gb` / `--sources` is
+resumable (complete files are skipped) and rewrites the manifest:
 
 ```bash
 python scripts/acquire_subset.py --dry-run     # show selection and size, download nothing
 python scripts/acquire_subset.py --limit 6     # quick smoke test
 python scripts/acquire_subset.py               # alphaearth only -> data/subset/
+sbatch slurm/acquire_subset.slurm              # Unity: all six sources, ~6 GB, onto /work
 ```
 
 Six sources are available (see `SOURCES` in the script): `alphaearth`, `tessera` (pixel-aligned,
@@ -49,23 +73,33 @@ python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \
     terramind_s1 terramind_s2 --max-gb 6
 ```
 
-Already-downloaded files are skipped (resumable), so re-running with more `--sources` only
-fetches what's missing. Subset training configs in `configs/0_baselines/` (`03`–`08`) all
-point at the resulting `data/subset/`. Full-split counterparts (`09`–`14`) point at `data/`
-after `scripts/acquire.py`. Pixel-aligned sources use LightUNet (AlphaEarth, Tessera);
-patch-token sources use EfficientEncoderDecoder (THOR/TerraMind S1/S2).
+Subset training configs (`03`–`08`) point at `data/subset/`. Full-split counterparts
+(`09`–`14`) point at `data/` after `scripts/acquire.py`. Pixel-aligned sources use
+LightUNet at `patch_size: 256` (full 256x256 tile; `128` center-crops val to 25% of
+the tile). Patch-token sources use EfficientEncoderDecoder (THOR/TerraMind S1/S2).
 
 ## Training Models
 
-The `train.py` script trains a model from a YAML experiment config:
+The `train.py` script trains a model from a YAML experiment config. Needs a
+manifest with `*_frac` columns and `band_stats.json` for that `data_root` (see
+**Before training** above). On Unity:
 
 ```bash
-# Full-data DataModule baseline (needs scripts/acquire.py first)
+# Full-data DataModule baseline
+sbatch slurm/train.slurm configs/0_baselines/09_alphaearth_datamodule.yaml
 python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml
 
-# With overrides (quick smoke run)
-python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml --epochs 1 --batch_size 4
+# Pipeline smoke: 1 epoch, tiny tile budget, do NOT reuse experiment_name or you
+# overwrite outputs/<name>/best_model.pth from a real run
+python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml \
+    --experiment_name smoke_alphaearth --epochs 1 --max_train_tiles 8 --num_workers 0 --batch_size 2
 ```
+
+`model_name: efficientencoderdecoder` (configs `05`–`08`, `11`–`14`) will not load
+an older `efficientdecoder` checkpoint — architecture and enum name both changed.
+Pixel-aligned LightUNet checkpoints trained at `patch_size: 128` on raw embeddings
+are also not comparable to a `patch_size: 256` + standardized run. Retrain before
+building a new evaluation table.
 
 ### Key Training Options
 
@@ -125,6 +159,11 @@ python scripts/evaluate_sources.py --configs configs/0_baselines/*.yaml
 # On Unity: sbatch slurm/eval.slurm
 ```
 
+Eval uses the same DataModule as training (stratified split, band standardization,
+`patch_size` from the YAML). A checkpoint trained under different settings will
+load only if `model_name` and `state_dict` still match; the numbers will not be
+comparable. Configs with no `best_model.pth` are skipped.
+
 (The old `evaluate.py` Lightning-era template — `TrainerConfig`, `datamodules.get_datamodule`,
 `trainers.get_task`, none of which exist anymore — has been removed; this replaces it.)
 
@@ -138,10 +177,18 @@ mean/std over the training split only (same `split_regions()` the DataModule use
 val never leaks in) and writes `<data_root>/band_stats.json`:
 
 ```bash
-python scripts/compute_band_stats.py --data-root data/subset
-# Produces: data/subset/band_stats.json
+# --val-frac / --seed must match the YAMLs for this data_root (03-14: 0.3 / 42)
+python scripts/compute_band_stats.py --data-root data/subset --val-frac 0.3 --seed 42
+python scripts/compute_band_stats.py --data-root data --val-frac 0.3 --seed 42
+# Unity:
+sbatch slurm/compute_band_stats.slurm
+sbatch slurm/compute_band_stats.slurm --data-root data/subset --val-frac 0.3 --seed 42
+# Produces: <data_root>/band_stats.json
 ```
 
+Each source is filtered then split the same way `Embed2HeightsDataModule.setup()`
+does, so val never leaks into the statistics. Sources already in the json are
+skipped (delete the file to recompute after a manifest rebuild).
 `Embed2HeightsDataModule` loads this automatically (`standardize_bands=True`, the
 config default) and applies `(x - mean) / std` per channel before nodata zeroing. If
 the json doesn't exist yet, training proceeds on raw values with a printed warning

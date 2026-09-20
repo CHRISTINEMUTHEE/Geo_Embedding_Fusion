@@ -132,8 +132,11 @@ same change (see `AGENTS.md` §7).
 ├── slurm/              - Slurm job scripts for running on Unity (unity.rc.umass.edu)
 │   ├── env.sh          - Shared uv/cache/data-symlink setup for the jobs below
 │   ├── acquire.slurm   - CPU job: scripts/acquire.py onto /work
+│   ├── acquire_subset.slurm - CPU job: scripts/acquire_subset.py -> data/subset/
+│   ├── compute_band_stats.slurm - CPU job: train-split band_stats.json
 │   ├── train.slurm     - Single-GPU submission wrapper around scripts/train.py
 │   ├── eval.slurm      - Single-GPU wrapper around scripts/evaluate_sources.py
+│   ├── smoke.slurm     - 1-epoch train+eval pipeline check (does not clobber 09/11)
 │   └── sweep.slurm     - Single-GPU submission wrapper around label_efficiency_sweep.py
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)

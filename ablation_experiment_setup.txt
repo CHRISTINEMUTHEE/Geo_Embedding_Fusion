@@ -1,0 +1,8 @@
+1. Train full data sources on both height and land cover class with the same configuration(only varying the model types) - done !
+2. Train full data sources on height only (land cover weight on loss is zero) with the same configuration (only varying the model types (Light Unet AE and Tessera, Efficient Decoder for Thor and Terramind)) - done !
+3. Evaluate these models to identify the best model overall on the two tasks (height and land cover) and on height only - please note the difference in configuration
+4. Fusion - to make the comparison. (Fusion vs Best Single Best Source)
+    Ask Akram the best fusion strategy to employ.
+5. Label Efficiency Sweep (Fusion vs Best Single Best Source)
+
+ NOTE :  Eval for weighted vs Weighted height only to be done and compared against mae cosine 256

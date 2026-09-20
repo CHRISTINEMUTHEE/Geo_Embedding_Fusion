@@ -59,7 +59,7 @@ class ExperimentConfig(BaseModel):
     
     # Training
     batch_size: int = 32
-    patch_size: int = 128
+    patch_size: int = 256
     num_workers: int = 4
     epochs: int = 30
     learning_rate: float = 2e-4
@@ -78,11 +78,11 @@ class ExperimentConfig(BaseModel):
     # Loss: "mae" (plain L1 over all 4 channels, no weighting) | "weighted" (height +
     # weighted-landcover, see losses.py -- Tversky/Dice was tried and rejected there,
     # miscalibrated for continuous fraction targets; see the module docstring)
-    loss_name: str = "mae"
+    loss_name: str = "weighted"
     ## height is the primary target (RQ1/RQ2); landcover is an auxiliary head (RQ3).
     ## Set w_landcover=0.0 to ablate it -- that's the actual RQ3 comparison.
     w_height: float = 1.0
-    w_landcover: float = 1.0
+    w_landcover: float = 0.0 
     ## Landcover channels are continuous sub-pixel fractions (verified against real
     ## data), not discrete classes. Building/water are heavily imbalanced (~1-3% mean
     ## coverage, ~70-75% of tiles near-zero) -- bg_weight downweights zero-label pixels

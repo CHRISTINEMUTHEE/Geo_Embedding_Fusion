@@ -9,8 +9,14 @@ before it reaches the model -- without this, sources with very different native 
 their own models with unrelated scales) aren't on comparable footing for fusion-vs-best-single-source comparison.
 
 Usage:
-    python scripts/compute_band_stats.py --data-root data/subset
+    python scripts/compute_band_stats.py --data-root data/subset --val-frac 0.3 --seed 42
+    python scripts/compute_band_stats.py --data-root data --val-frac 0.3 --seed 42
     python scripts/compute_band_stats.py --data-root data --sources alphaearth tessera
+
+Run AFTER the manifest has building_frac/vegetation_frac/water_frac (acquire.py --check
+or acquire_subset.py). --val-frac and --seed must match the YAML configs for this
+data_root (configs 03-14: 0.3 / 42). Sources already present in band_stats.json are
+skipped so a preempted Unity job can resume; delete the json to recompute.
 """
 import argparse
 import json
@@ -23,10 +29,14 @@ from emb2heights.datamodule import read_embedding_raw, read_manifest, split_regi
 
 
 def compute_stats(rows, root, source):
+    src_key = f"{source}_path"
+    rows = [r for r in rows if r.get(src_key)]
+    if not rows:
+        raise ValueError(f"{source}: no training tiles with a non-empty {src_key}")
     n_channels = None
     total = sumsq = count = None
     for row in tqdm(rows, desc=source):
-        raw, valid = read_embedding_raw(root / row[f"{source}_path"])
+        raw, valid = read_embedding_raw(root / row[src_key])
         if n_channels is None:
             n_channels = raw.shape[0]
             total = np.zeros(n_channels, dtype=np.float64)
@@ -63,21 +73,32 @@ def main():
     manifest = Path(args.manifest) if args.manifest else root / "manifest.csv"
     out = Path(args.out) if args.out else root / "band_stats.json"
 
-    rows = read_manifest(manifest)
-    train_regions, _ = split_regions(rows, args.val_frac, args.seed, args.stratify_threshold)
-    tr = [r for r in rows if r["region"] in set(train_regions)]
-    print(f"{len(tr)} training tiles across {len(train_regions)} regions "
-          f"(val_frac={args.val_frac}, seed={args.seed})")
+    all_rows = read_manifest(manifest)
+    stats = json.loads(out.read_text()) if out.exists() else {}
 
-    stats = {}
     for source in args.sources:
+        ## Filter then split per source, matching Embed2HeightsDataModule.setup()
+        ## (incomplete sources must not share another source's region split).
+        src_key = f"{source}_path"
+        rows = [r for r in all_rows if r.get("label_path") and r.get(src_key)]
+        if not rows:
+            raise ValueError(f"{source}: no usable tiles in {manifest}")
+        train_regions, _ = split_regions(
+            rows, args.val_frac, args.seed, args.stratify_threshold)
+        tr = [r for r in rows if r["region"] in set(train_regions)]
+        print(f"{source}: {len(tr)} training tiles across {len(train_regions)} regions "
+              f"(val_frac={args.val_frac}, seed={args.seed})")
+        if source in stats:
+            print(f"  {source}: already in {out} -- skip (delete the file to recompute)")
+            continue
         mean, std = compute_stats(tr, root, source)
         stats[source] = {"mean": mean.tolist(), "std": std.tolist()}
         print(f"  {source}: {len(mean)} channels, mean range "
               f"[{mean.min():.4f}, {mean.max():.4f}], std range [{std.min():.4f}, {std.max():.4f}]")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w") as f:
+            json.dump(stats, f, indent=2)
 
-    with open(out, "w") as f:
-        json.dump(stats, f, indent=2)
     print(f"\nwrote {out}")
 
 

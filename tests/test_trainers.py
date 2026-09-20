@@ -6,6 +6,7 @@ import torch
 from emb2heights.losses import build_loss
 from emb2heights.models import build_model
 from emb2heights.trainers import (
+    _nanmean_finite,
     _run_epoch,
     binary_iou_from_channel,
     build_optimizer,
@@ -41,6 +42,13 @@ def test_masked_rmse_empty_mask_is_nan():
     pred = torch.zeros(1, 2, 2)
     mask = torch.zeros_like(pred, dtype=torch.bool)
     assert math.isnan(masked_rmse(pred, pred, mask).item())
+
+
+def test_nanmean_finite_drops_inf():
+    ## One exploded batch must not turn the epoch metric into inf (matplotlib then
+    ## draws an empty height_rmse_vs_epochs.png).
+    assert _nanmean_finite([torch.tensor(3.0), torch.tensor(float("inf"))]) == pytest.approx(3.0)
+    assert math.isnan(_nanmean_finite([torch.tensor(float("inf")), torch.tensor(float("nan"))]))
 
 
 # ---------------- builders ----------------
