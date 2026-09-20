@@ -227,17 +227,8 @@ def evaluate_metrics(model, val_loader, device, height_norm, iou_threshold=0.3, 
     for c, (intersection, union) in iou_counts.items():
         results[f"iou_{c}"] = (intersection / union) if union > 0 else float("nan")
     for name, values in height_scores.items():
-        results[name] = _nanmean_finite(values)
+        results[name] = torch.nanmean(torch.stack(values)).item()
     return results
-
-
-def _nanmean_finite(values):
-    ## Inf is not NaN, so torch.nanmean([inf, 3.0]) is inf. One exploded val batch
-    ## (float32 overflow in (pred-true)^2) then wipes the whole epoch's RMSE and
-    ## matplotlib drops every inf point -- the empty height_rmse_vs_epochs.png.
-    stacked = torch.stack(values).float()
-    stacked = stacked.masked_fill(~torch.isfinite(stacked), float("nan"))
-    return torch.nanmean(stacked).item()
 
 
 def visualize_results(model, dataset, config, device, num_samples=5):
@@ -280,27 +271,10 @@ def plot_height_rmse_vs_epoch(epochs, rmse_overall, rmse_building, rmse_vegetati
     curve, NOT a label-efficiency curve -- it shows one run's epochs, not different
     amounts of training data. For the RQ2 label-efficiency sweep (accuracy vs number of
     labeled tiles, across separate runs), see scripts/label_efficiency_sweep.py."""
-    x = np.asarray(epochs, dtype=float)
-    series = [
-        (np.asarray(rmse_overall, dtype=float), dict(marker="^", linewidth=2.5),
-         "Overall height RMSE"),
-        (np.asarray(rmse_building, dtype=float), dict(marker="o", linestyle="--", alpha=0.7),
-         "Building height RMSE"),
-        (np.asarray(rmse_vegetation, dtype=float), dict(marker="s", linestyle="--", alpha=0.7),
-         "Vegetation height RMSE"),
-    ]
     fig, ax = plt.subplots(figsize=(10, 5))
-    plotted = False
-    for y, style, label in series:
-        keep = np.isfinite(x) & np.isfinite(y)
-        if keep.any():
-            ax.plot(x[keep], y[keep], label=label, **style)
-            plotted = True
-    if not plotted:
-        ax.text(0.5, 0.5,
-                "No finite height RMSE values\n(val predictions were inf/nan)",
-                ha="center", va="center", transform=ax.transAxes)
-        ax.set_xlim(0, max(1.0, float(np.nanmax(x)) if x.size else 1.0))
+    ax.plot(epochs, rmse_overall, marker="^", linewidth=2.5, label="Overall height RMSE")
+    ax.plot(epochs, rmse_building, marker="o", linestyle="--", alpha=0.7, label="Building height RMSE")
+    ax.plot(epochs, rmse_vegetation, marker="s", linestyle="--", alpha=0.7, label="Vegetation height RMSE")
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Height RMSE (m) — lower is better")
     ax.set_title("Height accuracy vs training epoch")
