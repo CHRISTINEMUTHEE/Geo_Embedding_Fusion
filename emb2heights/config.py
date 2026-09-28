@@ -82,7 +82,7 @@ class ExperimentConfig(BaseModel):
     ## height is the primary target (RQ1/RQ2); landcover is an auxiliary head (RQ3).
     ## Set w_landcover=0.0 to ablate it -- that's the actual RQ3 comparison.
     w_height: float = 1.0
-    w_landcover: float = 0.0 
+    w_landcover: float = 1.0 
     ## Landcover channels are continuous sub-pixel fractions (verified against real
     ## data), not discrete classes. Building/water are heavily imbalanced (~1-3% mean
     ## coverage, ~70-75% of tiles near-zero) -- bg_weight downweights zero-label pixels
