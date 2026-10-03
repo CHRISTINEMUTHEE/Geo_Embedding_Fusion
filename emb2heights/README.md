@@ -45,7 +45,12 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   building/water present via `class_balance_boost` (a `WeightedRandomSampler`, not a loss
   change — see `losses.py`'s `bg_weight` for that lever) and exposes `class_distribution`
   (per-split mean coverage and %-tiles-present per class — see
-  `scripts/report_class_distribution.py`). `TilePairDataset`/`LatentTokenDataset` accept
+  `scripts/report_class_distribution.py`) and `height_distribution` (per-split %% of
+  nonzero-height pixels in `HEIGHT_BIN_NAMES` = `low`/`medium`/`high`, fixed meter
+  edges `HEIGHT_BIN_EDGES = (3.0, 15.0)` so bins are comparable across every
+  source/split — chosen from the real data's percentiles for a roughly balanced
+  39/41/19%% split rather than data-driven quantiles, which would shift per split).
+  `TilePairDataset`/`LatentTokenDataset` accept
   `band_mean`/`band_std` for per-channel standardization; `Embed2HeightsDataModule` loads
   them from `<data_root>/band_stats.json` automatically when `standardize_bands=True`
   (default) — see `scripts/compute_band_stats.py`. Falls back to raw values with a
@@ -74,7 +79,34 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   (useful standalone, e.g. in tests) but `evaluate_metrics` uses `_mask_counts()` directly
   to accumulate instead. `iou_threshold` and `height_mask_threshold` are separate config
   fields — they used to be one shared `threshold`, so changing one silently changed the
-  other. `height_distribution()` collects true (and, given a model, predicted) height
+  other. `height_bin_accuracy`/`height_bin_f1_macro`/`height_bin_f1_{low,medium,high}`/
+  `height_bin_confusion` treat height as a 3-way classification problem
+  (`HEIGHT_BIN_NAMES`, see `datamodule.py`): both true and predicted height are binned,
+  then a `[true_bin, pred_bin]` confusion matrix is pooled across the whole val set the
+  same way IoU is (raw counts, not a per-batch average) before computing accuracy and
+  per-class F1 directly from that pooled matrix (verified against `sklearn.metrics.f1_score`
+  — not used directly since it needs raw y_true/y_pred arrays, not pooled counts). Only
+  defined where `true_height > 0` — bare ground isn't a height class. Printed every
+  epoch during training and by `scripts/evaluate_sources.py` (confusion matrix as a
+  JSON string in its CSV, since a nested list isn't a CSV scalar), and logged to WandB
+  (`val/height_bin_*` scalars each epoch, final confusion matrix as both a `wandb.Table`
+  (raw counts) and a `wandb.Image` heatmap (`plot_height_bin_confusion`, row-normalized
+  color = per-class recall, annotated with raw counts) saved locally too, at
+  `config.height_confusion_path`).
+  `train()` writes `class_distribution.json`
+  (`config.class_distribution_path`) next to `config.yaml` with both the landcover
+  class distribution and the height-bin distribution, and (`config.use_wandb=True`,
+  needs `WANDB_API_KEY` in the environment — see `_init_wandb`) logs the same data plus
+  every per-epoch metric to WandB (`entity`/`project` from `config.wandb_entity`/
+  `config.wandb_project`) — off by default so tests and local runs never touch the
+  network. Every other local artifact `train()` writes is also mirrored to WandB when
+  `use_wandb=True` (only if `save_artifacts=True` too, since these are re-logged from
+  the saved files, not regenerated): `loss_curve.png` → `train/loss_curve`,
+  `height_rmse_vs_epochs.png` → `val/height_rmse_curve`, the sample true-vs-predicted
+  maps from `visualize_results()` → `val/sample_visualizations` (one `wandb.Image` per
+  sample), and `class_distribution.json` itself → uploaded raw via `wandb.save()`
+  (visible/downloadable from the run's Files tab, not just as the flattened `data/*`
+  scalars). `height_distribution()` collects true (and, given a model, predicted) height
   values over nonzero-height validation pixels across the *whole* loader (mean/median
   need pooled values, not a per-batch average) — used by `scripts/evaluate_sources.py`
   for a shared `baseline` row plus each source's own predicted mean/median, to catch
@@ -96,4 +128,5 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
 - New loss: implement in `losses.py` and return it from `build_loss`.
 
 Outputs of every run land in `outputs/<experiment_name>/`: `best_model.pth`,
-`last_model.pth`, `config.yaml` snapshot, `loss_curve.png`, `visualizations/`.
+`last_model.pth`, `config.yaml` snapshot, `class_distribution.json`, `loss_curve.png`,
+`height_rmse_vs_epochs.png`, `height_bin_confusion.png`, `visualizations/`.

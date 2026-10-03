@@ -19,6 +19,7 @@ Usage:
 import argparse
 import csv
 import glob
+import json
 
 import torch
 
@@ -47,7 +48,7 @@ def main():
             print(f"Skip {config.experiment_name}: no checkpoint at {config.best_model_path}")
             continue
 
-        _, val_loader = build_train_val_loaders(config)
+        _, val_loader, _ = build_train_val_loaders(config)
         sample_img, _ = val_loader.dataset[0]
         model = build_model(config, sample_img.shape[0]).to(device)
         model.load_state_dict(torch.load(config.best_model_path, map_location=device))
@@ -57,6 +58,9 @@ def main():
         metrics.update(height_distribution(val_loader, config.height_normalization_constant, device, model))
         metrics["source"] = config.embedding_source
         metrics["experiment_name"] = config.experiment_name
+        ## JSON string, not the raw nested list -- csv.DictWriter round-trips a string
+        ## cleanly (json.loads later); a raw list just gets str()'d into the cell.
+        metrics["height_bin_confusion_json"] = json.dumps(metrics["height_bin_confusion"])
         rows.append(metrics)
         print(f"{config.embedding_source}: "
               f"MAE={metrics['mae_height']:.3f} RMSE={metrics['rmse_height']:.3f} "
@@ -64,6 +68,11 @@ def main():
               f"{metrics['iou_vegetation']:.3f}/{metrics['iou_water']:.3f}  "
               f"true mean/median={metrics['true_mean_height']:.2f}/{metrics['true_median_height']:.2f}  "
               f"pred mean/median={metrics['pred_mean_height']:.2f}/{metrics['pred_median_height']:.2f}")
+        print(f"  Height-as-classification: accuracy={metrics['height_bin_accuracy']:.3f} "
+              f"macro-F1={metrics['height_bin_f1_macro']:.3f} "
+              f"(F1 low/medium/high={metrics['height_bin_f1_low']:.3f}/"
+              f"{metrics['height_bin_f1_medium']:.3f}/{metrics['height_bin_f1_high']:.3f}) | "
+              f"confusion[true][pred]={metrics['height_bin_confusion']}")
 
         ## One shared "baseline" row (ground truth only, no model) -- every config here
         ## points at the same data_root's validation split, so this is the same number
@@ -83,9 +92,15 @@ def main():
 
     fieldnames = ["source", "experiment_name", "mae_height", "rmse_height",
                   "rmse_building", "rmse_vegetation", "iou_building", "iou_vegetation", "iou_water",
+                  "height_bin_accuracy", "height_bin_f1_macro",
+                  "height_bin_f1_low", "height_bin_f1_medium", "height_bin_f1_high",
+                  "height_bin_confusion_json",
                   "true_mean_height", "true_median_height", "pred_mean_height", "pred_median_height"]
     with open(args.out, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        ## extrasaction="ignore": evaluate_metrics also returns height_bin_confusion as a
+        ## raw nested list (not CSV-scalar) -- height_bin_confusion_json above is the
+        ## CSV-safe stand-in for it, so the raw list is dropped here rather than erroring.
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
     print(f"Wrote {args.out}")

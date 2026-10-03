@@ -96,6 +96,13 @@ class ExperimentConfig(BaseModel):
     # splitting them didn't change existing behavior, just made it independently tunable.
     iou_threshold: float = 0.5
     height_mask_threshold: float = 0.5
+
+    # WandB logging -- off by default so tests/local runs never try to hit the network.
+    # Turn on per-experiment (YAML or --use_wandb) for real training runs.
+    use_wandb: bool = False
+    wandb_entity: str = "christine_muthee"
+    wandb_project: str = "emb2heights"
+
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:
@@ -122,8 +129,16 @@ class ExperimentConfig(BaseModel):
         return self.experiment_dir / "height_rmse_vs_epochs.png"
 
     @property
+    def height_confusion_path(self) -> Path:
+        return self.experiment_dir / "height_bin_confusion.png"
+
+    @property
     def config_log_path(self) -> Path:
         return self.experiment_dir / "config.yaml"
+
+    @property
+    def class_distribution_path(self) -> Path:
+        return self.experiment_dir / "class_distribution.json"
 
     def make_dirs(self) -> None:
         self.viz_output_dir.mkdir(parents=True, exist_ok=True)

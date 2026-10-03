@@ -49,6 +49,7 @@ dependencies = [
     "segmentation-models-pytorch",
     # data access
     "eotdl",
+    "wandb>=0.30.0",
 ]
 
 [project.urls]

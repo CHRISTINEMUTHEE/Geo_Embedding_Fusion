@@ -34,6 +34,8 @@ def parse_args():
                         help="Presence cutoff for building/vegetation/water IoU (decoupled from --height_mask_threshold)")
     parser.add_argument("--height_mask_threshold", type=float,
                         help="Presence cutoff for which pixels count toward rmse_building/rmse_vegetation")
+    parser.add_argument("--use_wandb", action=argparse.BooleanOptionalAction,
+                        help="Log this run to WandB (needs WANDB_API_KEY set in the environment)")
     return parser.parse_args()
 
 

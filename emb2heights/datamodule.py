@@ -33,6 +33,15 @@ PATCH_SOURCES = {"terramind_s1", "terramind_s2", "thor_s1", "thor_s2"}
 ## stratified train/val splitting and the class_balance_boost training sampler below.
 LABEL_CLASSES = ("building", "vegetation", "water")
 
+## Fixed meter thresholds, not data-driven quantiles -- the point is bin edges that
+## stay identical across every source/split/experiment, so height-bin metrics are
+## comparable across runs. np.digitize semantics: low = h<=3, medium = 3<h<=15,
+## high = h>15. Chosen from the subset's real nonzero-height distribution (median
+## 5.9m, p90 18.3m) to give a reasonably balanced 3-way split (~39/41/19%) rather
+## than a degenerate one.
+HEIGHT_BIN_EDGES = (3.0, 15.0)
+HEIGHT_BIN_NAMES = ("low", "medium", "high")
+
 
 def read_manifest(manifest_path, keep_only=True):
     with open(manifest_path, newline="") as f:
@@ -260,6 +269,27 @@ def summarize_class_distribution(rows, threshold=0.01):
     return summary
 
 
+## Per-split height-class distribution -- % of nonzero-height (actually-covered,
+## not bare-ground) pixels falling in each HEIGHT_BIN_NAMES bucket. Unlike
+## summarize_class_distribution, this needs the label raster itself (the manifest
+## only carries building/vegetation/water fractions, not a height histogram), so it
+## reads every row's label_path once. Called once at setup(), not per epoch.
+def summarize_height_distribution(rows, root):
+    counts = np.zeros(len(HEIGHT_BIN_NAMES), dtype=np.int64)
+    total = 0
+    for r in rows:
+        with rasterio.open(root / r["label_path"]) as s:
+            h = s.read(4).astype(np.float32)
+        h = h[h > 0]
+        if h.size == 0:
+            continue
+        counts += np.bincount(np.digitize(h, HEIGHT_BIN_EDGES), minlength=len(HEIGHT_BIN_NAMES))
+        total += h.size
+    if total == 0:
+        return {name: 0.0 for name in HEIGHT_BIN_NAMES}
+    return {name: 100.0 * c / total for name, c in zip(HEIGHT_BIN_NAMES, counts)}
+
+
 # REVIEW REQUIRED
 class Embed2HeightsDataModule:
     """Manifest -> region-grouped train/val loaders. Plain Python, no Lightning."""
@@ -299,6 +329,7 @@ class Embed2HeightsDataModule:
         self.train_regions = self.val_regions = []
         self.n_train_tiles_used = None
         self.class_distribution = {}
+        self.height_distribution = {}
         self.train_sampler = None
 
     def _load_band_stats(self):
@@ -344,6 +375,8 @@ class Embed2HeightsDataModule:
         self.n_train_tiles_used = len(tr)
         self.class_distribution = {"train": summarize_class_distribution(tr, self.stratify_threshold),
                                     "val": summarize_class_distribution(va, self.stratify_threshold)}
+        self.height_distribution = {"train": summarize_height_distribution(tr, self.root),
+                                     "val": summarize_height_distribution(va, self.root)}
 
         band_mean, band_std = self._load_band_stats()
 

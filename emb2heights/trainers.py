@@ -5,17 +5,22 @@ Entry point: train(config) — builds loaders/model/loss/optimizer from an
 ExperimentConfig, trains with validation each epoch, saves best/last weights,
 a loss curve, and a config snapshot under outputs/<experiment_name>/.
 """
+import json
+import os
 import random
+from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")  # save figures without a display
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 import torch
+import wandb
 from tqdm import tqdm
 
 
-from emb2heights.datamodule import Embed2HeightsDataModule
+from emb2heights.datamodule import Embed2HeightsDataModule, HEIGHT_BIN_EDGES, HEIGHT_BIN_NAMES
 from emb2heights.datasets import build_dataloaders
 from emb2heights.losses import build_loss
 from emb2heights.models import build_model
@@ -47,9 +52,13 @@ def build_train_val_loaders(config):
             summary = "  ".join(f"{cls}: mean={s['mean_frac']:.3f} "
                                  f"present={s['pct_tiles_present']:.0f}%"
                                  for cls, s in stats.items())
+            heights = "  ".join(f"{name}={pct:.1f}%" for name, pct in dm.height_distribution[split].items())
             print(f"  {split} class distribution -> {summary}")
-        return dm.train_dataloader(), dm.val_dataloader()
-    return build_dataloaders(config)
+            print(f"  {split} height distribution -> {heights}")
+        distributions = {"class": dm.class_distribution, "height_bins": dm.height_distribution}
+        return dm.train_dataloader(), dm.val_dataloader(), distributions
+    train_loader, val_loader = build_dataloaders(config)
+    return train_loader, val_loader, None
 
 
 def get_device():
@@ -199,6 +208,13 @@ def evaluate_metrics(model, val_loader, device, height_norm, iou_threshold=0.3, 
     ## rmse_building/rmse_vegetation: masked to where that class is present in the
     ## target -- diagnostic (where does height error concentrate), not the headline number.
     height_scores = {k: [] for k in ["mae_height", "rmse_height", "rmse_building", "rmse_vegetation"]}
+    ## Height-as-classification (low/medium/high, see datamodule.HEIGHT_BIN_EDGES):
+    ## [true_bin, pred_bin] confusion counts, pooled across the whole val set for the
+    ## same reason IoU is pooled above -- a per-batch accuracy average is batch-size
+    ## sensitive. Only defined where true_height > 0 (bare ground isn't a height class).
+    n_bins = len(HEIGHT_BIN_NAMES)
+    height_bin_confusion = torch.zeros(n_bins, n_bins, dtype=torch.long)
+    edges = torch.tensor(HEIGHT_BIN_EDGES)
 
     with torch.no_grad():
         for imgs, targets in val_loader:
@@ -223,11 +239,37 @@ def evaluate_metrics(model, val_loader, device, height_norm, iou_threshold=0.3, 
             height_scores["rmse_vegetation"].append(
                 masked_rmse(pred_height, true_height, true[:, 1] > height_mask_threshold))
 
+            hmask = true_height > 0
+            if hmask.any():
+                true_bin = torch.bucketize(true_height[hmask].cpu(), edges)
+                pred_bin = torch.bucketize(pred_height[hmask].cpu(), edges)
+                idx = true_bin * n_bins + pred_bin
+                height_bin_confusion += torch.bincount(idx, minlength=n_bins * n_bins).reshape(n_bins, n_bins)
+
     results = {}
     for c, (intersection, union) in iou_counts.items():
         results[f"iou_{c}"] = (intersection / union) if union > 0 else float("nan")
     for name, values in height_scores.items():
         results[name] = torch.nanmean(torch.stack(values)).item()
+    total_bin_pixels = height_bin_confusion.sum().item()
+    results["height_bin_accuracy"] = (
+        (torch.trace(height_bin_confusion).item() / total_bin_pixels) if total_bin_pixels > 0 else float("nan"))
+    ## Per-class F1 from the pooled confusion matrix directly (not sklearn, which needs
+    ## raw y_true/y_pred arrays -- all we keep is the already-pooled counts, same
+    ## pooled-not-per-batch reasoning as IoU/accuracy above). TP/FP/FN read off row c
+    ## (true=c) and column c (pred=c) of the [true, pred] matrix.
+    f1_per_class = {}
+    for i, name in enumerate(HEIGHT_BIN_NAMES):
+        tp = height_bin_confusion[i, i].item()
+        fp = height_bin_confusion[:, i].sum().item() - tp
+        fn = height_bin_confusion[i, :].sum().item() - tp
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        f1_per_class[name] = (2 * precision * recall / (precision + recall)
+                              if (precision + recall) > 0 else 0.0)
+        results[f"height_bin_f1_{name}"] = f1_per_class[name]
+    results["height_bin_f1_macro"] = sum(f1_per_class.values()) / len(f1_per_class)
+    results["height_bin_confusion"] = height_bin_confusion.tolist()  # rows=true, cols=pred, order=HEIGHT_BIN_NAMES
     return results
 
 
@@ -284,6 +326,27 @@ def plot_height_rmse_vs_epoch(epochs, rmse_overall, rmse_building, rmse_vegetati
     plt.close(fig)
 
 
+## wandb.Table (already logged in train()) renders as a plain numeric grid in the
+## WandB UI, not a heatmap -- this is the actual visual confusion matrix. Normalized
+## by true-row (each row sums to 1) so color reads as per-class recall, annotated
+## with the raw pixel counts so the absolute scale isn't lost.
+def plot_height_bin_confusion(confusion, path):
+    confusion = np.asarray(confusion, dtype=np.float64)
+    row_sums = confusion.sum(axis=1, keepdims=True)
+    normalized = np.divide(confusion, row_sums, out=np.zeros_like(confusion), where=row_sums > 0)
+
+    fig, ax = plt.subplots(figsize=(5, 4.5))
+    sns.heatmap(normalized, annot=confusion.astype(np.int64), fmt="d", cmap="Blues",
+                vmin=0, vmax=1, xticklabels=HEIGHT_BIN_NAMES, yticklabels=HEIGHT_BIN_NAMES,
+                cbar_kws={"label": "row-normalized (recall)"}, ax=ax)
+    ax.set_xlabel("Predicted")
+    ax.set_ylabel("True")
+    ax.set_title("Height-bin confusion matrix")
+    fig.tight_layout()
+    fig.savefig(path)
+    plt.close(fig)
+
+
 def _run_epoch(model, loader, criterion, device, optimizer=None, desc=""):
     """One pass over loader. Trains if optimizer is given, else evaluates."""
     training = optimizer is not None
@@ -310,6 +373,28 @@ def _run_epoch(model, loader, criterion, device, optimizer=None, desc=""):
     return total_loss / max(1, samples_seen)
 
 
+## use_wandb=True needs credentials already resolvable, non-interactively, before
+## wandb.init() runs -- fail fast with a clear error instead of wandb's own
+## interactive login prompt, which hangs a non-interactive Slurm job forever. wandb
+## itself resolves credentials from either WANDB_API_KEY or a cached `wandb login`
+## (~/.netrc) -- check both, the same two places it checks.
+def _wandb_credentials_available():
+    if os.environ.get("WANDB_API_KEY"):
+        return True
+    netrc_path = Path.home() / ".netrc"
+    return netrc_path.exists() and "api.wandb.ai" in netrc_path.read_text()
+
+
+def _init_wandb(config):
+    if not _wandb_credentials_available():
+        raise RuntimeError(
+            "config.use_wandb=True but no WandB credentials found -- set WANDB_API_KEY "
+            "in the environment, or run `wandb login` on this machine, before starting this job."
+        )
+    return wandb.init(entity=config.wandb_entity, project=config.wandb_project,
+                       name=config.experiment_name, config=config.model_dump(mode="json"))
+
+
 # REVIEW REQUIRED
 ## Main entry point: config -> trained model + artifacts in outputs/<experiment_name>/.
 ## save_artifacts=False skips every disk write (checkpoints, config.yaml, loss/height
@@ -324,7 +409,27 @@ def train(config, save_artifacts=True):
         config.make_dirs()
         config.save()
 
-    train_loader, val_loader = build_train_val_loaders(config)
+    train_loader, val_loader, distributions = build_train_val_loaders(config)
+    if save_artifacts and distributions is not None:
+        with open(config.class_distribution_path, "w") as f:
+            json.dump(distributions, f, indent=2)
+
+    run = _init_wandb(config) if config.use_wandb else None
+    if run is not None and distributions is not None:
+        ## Static (computed once at setup, not per epoch) -- logged at step 0.
+        flat = {}
+        for split, stats in distributions["class"].items():
+            for cls, s in stats.items():
+                for k, v in s.items():
+                    flat[f"data/class_{split}_{cls}_{k}"] = v
+        for split, stats in distributions["height_bins"].items():
+            for name, pct in stats.items():
+                flat[f"data/height_{split}_{name}"] = pct
+        wandb.log(flat, step=0)
+        if save_artifacts:
+            ## Raw file, not just the flattened scalars above -- visible/downloadable
+            ## from the run's Files tab.
+            wandb.save(str(config.class_distribution_path))
 
     ## Infer input channels from the data (AlphaEarth=64, Tessera=128, ...)
     sample_img, _ = train_loader.dataset[0]
@@ -369,6 +474,16 @@ def train(config, save_artifacts=True):
         height_rmse_vegetation.append(metrics["rmse_vegetation"])
         print(f"  Height MAE/RMSE (m) overall: {metrics['mae_height']:.3f}/{metrics['rmse_height']:.3f} | "
               f"RMSE building={metrics['rmse_building']:.3f} vegetation={metrics['rmse_vegetation']:.3f}")
+        print(f"  Height-as-classification: accuracy={metrics['height_bin_accuracy']:.3f} "
+              f"macro-F1={metrics['height_bin_f1_macro']:.3f} "
+              f"(F1 low/medium/high={metrics['height_bin_f1_low']:.3f}/"
+              f"{metrics['height_bin_f1_medium']:.3f}/{metrics['height_bin_f1_high']:.3f}) | "
+              f"confusion[true][pred]={metrics['height_bin_confusion']}")
+
+        if run is not None:
+            wandb.log({"train/loss": train_loss, "val/loss": val_loss,
+                       **{f"val/{k}": v for k, v in metrics.items() if k != "height_bin_confusion"}},
+                      step=epoch)
 
         ## "Best" checkpoint = lowest overall (unmasked) height RMSE, not lowest val loss --
         ## ties model selection to the actual research metric (RQ1/RQ2) instead of a
@@ -385,7 +500,8 @@ def train(config, save_artifacts=True):
         if epoch % 10 == 0:
             print("  Challenge-style evaluation:")
             for name, value in metrics.items():
-                print(f"    {name}: {value:.4f}")
+                if name != "height_bin_confusion":
+                    print(f"    {name}: {value:.4f}")
 
     if save_artifacts:
         torch.save(model.state_dict(), config.last_model_path)
@@ -402,10 +518,32 @@ def train(config, save_artifacts=True):
         plot_height_rmse_vs_epoch(epochs_seen, height_rmse_overall, height_rmse_building,
                                   height_rmse_vegetation, config.height_curve_path)
 
+        plot_height_bin_confusion(metrics["height_bin_confusion"], config.height_confusion_path)
+
         visualize_results(model, val_loader.dataset, config, device)
+
+        if run is not None:
+            ## Re-logs the already-saved local PNGs -- generated once, uploaded once.
+            wandb.log({
+                "train/loss_curve": wandb.Image(str(config.loss_curve_path)),
+                "val/height_rmse_curve": wandb.Image(str(config.height_curve_path)),
+                "val/height_bin_confusion_plot": wandb.Image(str(config.height_confusion_path)),
+                "val/sample_visualizations": [
+                    wandb.Image(str(p)) for p in sorted(config.viz_output_dir.glob("visualization_*.png"))],
+            })
+
         print(f"Artifacts saved under {config.experiment_dir}")
     else:
         print("Training complete (save_artifacts=False -- no checkpoints, plots, or visualizations written)")
+
+    if run is not None:
+        ## Final epoch's confusion matrix only (per-epoch would be 100 tables for the
+        ## full-data configs) -- rows/cols both ordered HEIGHT_BIN_NAMES.
+        wandb.log({"val/height_bin_confusion": wandb.Table(
+            columns=[f"pred_{n}" for n in HEIGHT_BIN_NAMES],
+            data=metrics["height_bin_confusion"],
+        )})
+        wandb.finish()
 
     return model, {"train_losses": train_losses, "val_losses": val_losses,
                    "best_val_loss": min(val_losses),
@@ -420,4 +558,7 @@ def train(config, save_artifacts=True):
                    ## no need for a second evaluate_metrics() pass over val_loader here)
                    "iou_building": metrics["iou_building"],
                    "iou_vegetation": metrics["iou_vegetation"],
-                   "iou_water": metrics["iou_water"]}
+                   "iou_water": metrics["iou_water"],
+                   "height_bin_accuracy": metrics["height_bin_accuracy"],
+                   "height_bin_f1_macro": metrics["height_bin_f1_macro"],
+                   "height_bin_confusion": metrics["height_bin_confusion"]}

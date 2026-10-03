@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 """
 Report per-source, per-split (train/val) class distribution: mean building/vegetation/
-water coverage and % of tiles where each is present, using the exact same region-grouped,
-stratified split each config's train() call would use (same data_root/source/val_split/
-random_seed/stratify_threshold). Answers the question "did the split actually preserve enough
-building/water tiles in each split" without having to train anything first.
+water coverage and % of tiles where each is present, plus the height-bin distribution
+(% of nonzero-height pixels in HEIGHT_BIN_NAMES = low/medium/high, see datamodule.py),
+using the exact same region-grouped, stratified split each config's train() call would
+use (same data_root/source/val_split/random_seed/stratify_threshold). Answers "did the
+split actually preserve enough building/water/high-rise tiles in each split" without
+having to train anything first.
 
 Usage:
     python scripts/report_class_distribution.py --configs configs/0_baselines/0{3,4,5,6,7,8}_*.yaml
@@ -14,7 +16,7 @@ import csv
 import glob
 
 from emb2heights.config import load_config
-from emb2heights.datamodule import LABEL_CLASSES, Embed2HeightsDataModule
+from emb2heights.datamodule import HEIGHT_BIN_NAMES, LABEL_CLASSES, Embed2HeightsDataModule
 
 
 def parse_args():
@@ -51,13 +53,17 @@ def main():
                 s = dm.class_distribution[split][cls]
                 row[f"{cls}_mean_frac"] = s["mean_frac"]
                 row[f"{cls}_pct_present"] = s["pct_tiles_present"]
+            for name in HEIGHT_BIN_NAMES:
+                row[f"height_{name}_pct"] = dm.height_distribution[split][name]
             rows.append(row)
             print(f"  {split}: " + "  ".join(
                 f"{cls}: mean={row[f'{cls}_mean_frac']:.3f} present={row[f'{cls}_pct_present']:.0f}%"
-                for cls in LABEL_CLASSES))
+                for cls in LABEL_CLASSES) + "  |  height: " + "  ".join(
+                f"{name}={row[f'height_{name}_pct']:.1f}%" for name in HEIGHT_BIN_NAMES))
 
     fieldnames = ["source", "experiment_name", "split", "n_tiles"] + [
-        f"{cls}_{suffix}" for cls in LABEL_CLASSES for suffix in ("mean_frac", "pct_present")]
+        f"{cls}_{suffix}" for cls in LABEL_CLASSES for suffix in ("mean_frac", "pct_present")] + [
+        f"height_{name}_pct" for name in HEIGHT_BIN_NAMES]
     with open(args.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()

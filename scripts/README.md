@@ -12,7 +12,9 @@ This directory contains scripts for training, evaluating, and analyzing models. 
 - `compute_band_stats.py`: Per-source, per-channel mean/std over the training split
   only, written to `<data_root>/band_stats.json` for embedding standardization
 - `report_class_distribution.py`: Per-source, per-split building/vegetation/water
-  coverage — checks the stratified split actually preserved rare classes in val
+  coverage plus the height-bin distribution (low/medium/high, see
+  `emb2heights/datamodule.py`'s `HEIGHT_BIN_NAMES`) — checks the stratified split
+  actually preserved rare classes (and height variety) in val
 - `infer.py`: Run inference (template, not yet adapted)
 - `acquire.py`: Download the **full** training split from the public HF mirror (~110 GB;
   no login). Writes `data/manifest.csv` for the DataModule. On Unity use
@@ -111,6 +113,10 @@ building a new evaluation table.
   `emb2heights/losses.py`) — `--w_landcover 0.0` is the RQ3 ablation
 - `--max_train_tiles`: cap training tiles (val stays full) — one point of a
   label-efficiency sweep; use `label_efficiency_sweep.py` to run the whole sweep
+- `--use_wandb` / `--no-use_wandb`: log this run to WandB (`entity`/`project` from
+  `config.wandb_entity`/`config.wandb_project`, defaults `xtinemuthee`/`emb2heights`).
+  Off by default. Needs `WANDB_API_KEY` set in the environment first — fails fast with
+  a clear error instead of hanging on an interactive login prompt if it isn't
 
 Hyperparameter search (`--search_mode`, Optuna) was removed with the old template
 `train.py`; re-add it when the baseline pipeline is stable.
@@ -139,8 +145,11 @@ outputs too, e.g. to inspect one budget's model or sample predictions.
 ## Evaluating Models
 
 `evaluate_sources.py` loads each config's own `best_model.pth` (no training) and runs
-`evaluate_metrics()` (pooled IoU + height MAE/RMSE, see `emb2heights/README.md`) on
-that config's own validation set, writing one row per source to a CSV. Configs with
+`evaluate_metrics()` (pooled IoU + height MAE/RMSE + height-as-classification
+accuracy/F1/confusion matrix, see `emb2heights/README.md`) on that config's own
+validation set, writing one row per source to a CSV. The confusion matrix is also
+printed per source and written as a JSON string (`height_bin_confusion_json` column —
+`json.loads()` it back to a list of lists). Configs with
 no checkpoint yet are skipped, not errored on. Only the validation set is used — the
 HF catalog's test split (`data/test/*_test_*_emb/`) is embeddings-only with no label
 assets, so there's nothing to locally score a test set against; the challenge scores
@@ -200,7 +209,9 @@ Building and water are rare at both the pixel level (~1-3% mean coverage) and th
 level (present in under a third of tiles in `data/subset`) — see
 `emb2heights/README.md` on how `split_regions()` and the training sampler handle this.
 `report_class_distribution.py` prints/writes each split's actual mean coverage and
-%-tiles-present per class, using the exact split each config's `train()` call would use:
+%-tiles-present per class, plus its height-bin breakdown (`height_low_pct`/
+`height_medium_pct`/`height_high_pct`), using the exact split each config's `train()`
+call would use:
 
 ```bash
 python scripts/report_class_distribution.py --configs configs/0_baselines/0{3,4,5,6,7,8}_*.yaml

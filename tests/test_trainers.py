@@ -98,7 +98,10 @@ def test_evaluate_metrics_returns_all_keys(config):
                                config.height_normalization_constant)
     assert set(metrics) == {"iou_building", "iou_vegetation", "iou_water",
                             "mae_height", "rmse_height",
-                            "rmse_building", "rmse_vegetation"}
+                            "rmse_building", "rmse_vegetation",
+                            "height_bin_accuracy", "height_bin_confusion",
+                            "height_bin_f1_low", "height_bin_f1_medium", "height_bin_f1_high",
+                            "height_bin_f1_macro"}
 
 
 # ---------------- end to end ----------------
