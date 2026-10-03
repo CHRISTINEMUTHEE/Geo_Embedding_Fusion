@@ -124,27 +124,15 @@ emb2heights/  # Reusable modules: models, datasets, trainers, config
 
 ## Environment
 
-This project uses [uv](https://docs.astral.sh/uv/) for environment and dependency management. All dependencies are declared in `pyproject.toml` (runtime under `[project] dependencies`, dev tooling under `[dependency-groups] dev`, release tooling under `[dependency-groups] release`).
-
-Create the environment:
+This project uses [uv](https://docs.astral.sh/uv/). All dependencies are declared in `pyproject.toml` (runtime under `[project] dependencies`, dev tooling under `[dependency-groups] dev`).
 
 ```bash
-uv sync
-```
-
-Run commands without activating:
-
-```bash
+uv sync --group dev
 uv run python scripts/train.py ...
 ```
 
-Or activate the venv once and use plain commands:
-
-```bash
-source .venv/bin/activate
-python scripts/train.py ...
-```
+Or activate once: `source .venv/bin/activate`.
 
 When you need a new library:
-1. `uv add <package>` (runtime dep) or `uv add --group dev <package>` (dev tool).
+1. `uv add <package>` (runtime) or `uv add --group dev <package>` (dev tool).
 2. Commit the updated `pyproject.toml` and `uv.lock`.

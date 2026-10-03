@@ -1,0 +1,25 @@
+# Baseline: LightUNet on Tessera pixel embeddings (128ch, 256x256).
+# Same labels and training recipe as 01_alphaearth_lightunet; only the embedding source changes.
+# Input channels are inferred from the files (128), not set here.
+experiment_name: "02_tessera_lightunet"
+train_embeddings_dir: "data/train/tessera_emb"
+train_targets_dir: "data/train/labels"
+test_embeddings_dir: "data/test/tessera_test_emb"
+
+model_name: "lightunet"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 32
+patch_size: 128
+num_workers: 4
+epochs: 30
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.2
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "plateau"
+patience: 10
+factor: 0.1

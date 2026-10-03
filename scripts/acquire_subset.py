@@ -7,10 +7,18 @@ developed and verified on a laptop. Regions are the only geographic grouping the
 exposes (coordinates were stripped by the organizers), so we sample whole regions and let
 the DataModule hold entire regions out for validation.
 
+Six embedding sources are available (see SOURCES): alphaearth and tessera are pixel-aligned
+(~17/~34 MB per tile); thor_s1/thor_s2/terramind_s1/terramind_s2 are patch-token embeddings
+and much smaller (~1 MB per tile). --sources controls which ones a run fetches; a tile is
+only kept if it has the label AND every requested source, so requesting more sources doesn't
+enlarge the per-tile set, only what --max-gb needs to cover per tile.
+
 Usage:
-    python scripts/acquire_subset.py --dry-run          # show selection, download nothing
-    python scripts/acquire_subset.py --limit 6          # quick smoke test
-    python scripts/acquire_subset.py                    # full ~1.4 GB subset
+    python scripts/acquire_subset.py --dry-run                     # show selection, download nothing
+    python scripts/acquire_subset.py --limit 6                     # quick smoke test
+    python scripts/acquire_subset.py                                # alphaearth only, ~1.4 GB
+    python scripts/acquire_subset.py --sources alphaearth tessera thor_s1 thor_s2 \\
+        terramind_s1 terramind_s2 --max-gb 6                        # all sources, one manifest
 """
 import argparse
 import csv
@@ -24,13 +32,22 @@ import pandas as pd
 import rasterio
 from tqdm import tqdm
 
+from emb2heights.datamodule import LABEL_CLASSES
+
 HF = "https://huggingface.co/datasets/troni21/esa_philab_embed2heights/resolve/main/"
 CATALOG = HF + "catalog.v1.parquet"
 
 ## Each source pairs an embedding directory with the shared label directory.
+## alphaearth/tessera are pixel-aligned (256x256); thor_*/terramind_* are patch-token
+## embeddings, native grid coarser than the label (see emb2heights.datamodule.PATCH_SOURCES,
+## which must list the same patch sources named here).
 SOURCES = {
     "alphaearth": "data/train/alphaearth_emb",
     "tessera": "data/train/tessera_emb",
+    "thor_s1": "data/train/thor_s1_emb",
+    "thor_s2": "data/train/thor_s2_emb",
+    "terramind_s1": "data/train/terramind_s1_emb",
+    "terramind_s2": "data/train/terramind_s2_emb",
 }
 LABEL_DIR = "data/train/labels"
 
@@ -138,6 +155,10 @@ def qc_tile(tile, out_root, sources, min_valid):
         lab = s.read().astype(np.float32)
     row["height"], row["width"] = lab.shape[1], lab.shape[2]
     row["label_nonzero_frac"] = float(np.mean(np.any(lab != 0, axis=0)))
+    ## Per-class mean coverage (channels 0/1/2 -- see trainers.target_names) drives
+    ## stratified train/val splitting and the class_balance_boost training sampler.
+    for i, cls in enumerate(LABEL_CLASSES):
+        row[f"{cls}_frac"] = float(np.mean(lab[i]))
 
     valid_fracs = []
     for src in sources:

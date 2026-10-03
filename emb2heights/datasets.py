@@ -68,9 +68,6 @@ def find_embedding_files(emb_dir):
 # 1:1 spatial resolution (e.g. 256x256 -> 256x256)
 # ---------------------------------------------------------
 # REVIEW REQUIRED
-## KNOWN FLAW: embeddings are int8-quantized (values +/-127, nodata -128) and are NOT
-## dequantized here, and nan_to_num maps NaN to 0.0 -- indistinguishable from a real
-## embedding value. Kept for baseline reproducibility; datamodule.py fixes both.
 class PixelEmbeddingsDataset(Dataset):
     def __init__(self, file_pairs, patch_size=128, is_train=True, height_norm=30.0):
         self.file_pairs = file_pairs
@@ -123,11 +120,76 @@ class PixelEmbeddingsDataset(Dataset):
         target = target[:, top:top + self.patch_size, left:left + self.patch_size]
         return image_t, torch.from_numpy(target)
 
+# ---------------------------------------------------------
+# DATASET 2: Latent Token-Based (TerraMind, Thor)
+# Upscaled Spatial Resolution (e.g., 16x16 -> 256x256)
+# ---------------------------------------------------------
+class LatentTokenDataset(Dataset):
+    def __init__(self, file_pairs, patch_size=256, scale_factor=16, is_train=True, height_norm=30.0):
+        self.file_pairs = file_pairs
+        self.patch_size = patch_size
+        self.scale_factor = scale_factor
+        self.is_train = is_train
+        self.height_norm = height_norm
+
+    def __len__(self):
+        return len(self.file_pairs)
+
+    def __getitem__(self, idx):
+        emb_path, tar_path = self.file_pairs[idx]
+
+        with rasterio.open(emb_path) as src:
+            image = src.read().astype(np.float32)
+        image = np.nan_to_num(image)
+
+        has_target = tar_path is not None
+        if has_target:
+            with rasterio.open(tar_path) as src:
+                target = src.read().astype(np.float32)
+            target = np.nan_to_num(target)
+            # normalize height channel to [0, 1.5]
+            target[3, :, :] = np.clip(target[3, :, :] / self.height_norm, 0.0, 1.5)
+
+        emb_patch_size = self.patch_size // self.scale_factor
+
+        # Pad Embedding to its specific small size
+        c, h_emb, w_emb = image.shape
+        if h_emb < emb_patch_size or w_emb < emb_patch_size:
+            pad_h = max(0, emb_patch_size - h_emb)
+            pad_w = max(0, emb_patch_size - w_emb)
+            image = np.pad(image, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
+            h_emb, w_emb = image.shape[1], image.shape[2]
+
+        # Pad Target to full size
+        if has_target:
+            _, h_tar, w_tar = target.shape
+            if h_tar < self.patch_size or w_tar < self.patch_size:
+                pad_h = max(0, self.patch_size - h_tar)
+                pad_w = max(0, self.patch_size - w_tar)
+                target = np.pad(target, ((0, 0), (0, pad_h), (0, pad_w)), mode='reflect')
+
+        # Multi-scale Cropping
+        if self.is_train:
+            top_emb = np.random.randint(0, h_emb - emb_patch_size + 1)
+            left_emb = np.random.randint(0, w_emb - emb_patch_size + 1)
+        else:
+            top_emb = (h_emb - emb_patch_size) // 2
+            left_emb = (w_emb - emb_patch_size) // 2
+
+        image = image[:, top_emb:top_emb + emb_patch_size, left_emb:left_emb + emb_patch_size]
+        image_t = torch.from_numpy(image)
+
+        if not has_target:
+            return image_t, torch.empty(0)
+
+        # crop target to the same size as the image
+        top_tar = top_emb * self.scale_factor
+        left_tar = left_emb * self.scale_factor
+        target = target[:, top_tar:top_tar + self.patch_size, left_tar:left_tar + self.patch_size]
+        return image_t, torch.from_numpy(target)
 
 # REVIEW REQUIRED
 ## Config -> (train_loader, val_loader). Replaces the old Lightning DataModule.
-## KNOWN FLAW: the split is random over tiles, so tiles from the same region land in both
-## train and val (geographic leakage). Use Embed2HeightsDataModule for a region-grouped split.
 def build_dataloaders(config):
     pairs = find_file_pairs(config.train_embeddings_dir, config.train_targets_dir)
     if len(pairs) == 0:

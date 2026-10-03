@@ -7,7 +7,7 @@ computed properties so they always follow experiment_name.
 """
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import yaml
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from pydantic import BaseModel
 ## Closed set of choices only. Adding a model = value here + branch in models.build_model.
 class ModelNameEnum(str, Enum):
     lightunet = "lightunet"
+    efficientencoderdecoder = "efficientencoderdecoder"
 
 
 class ExperimentConfig(BaseModel):
@@ -23,10 +24,31 @@ class ExperimentConfig(BaseModel):
     experiment_name: str
     base_dir: str = "outputs"
 
-    # Data locations (embeddings + matching label rasters)
-    train_embeddings_dir: str
-    train_targets_dir: str
+    # Data locations (embeddings + matching label rasters) — used by the legacy
+    # random-split loader in datasets.py (build_dataloaders)
+    train_embeddings_dir: Optional[str] = None
+    train_targets_dir: Optional[str] = None
     test_embeddings_dir: Optional[str] = None
+
+    # Region-grouped data loading (emb2heights.datamodule.Embed2HeightsDataModule).
+    # When data_root is set, trainers.train() uses this instead of build_dataloaders —
+    # it dequantizes int8 embeddings and masks nodata honestly (see datamodule.py).
+    data_root: Optional[str] = None
+    embedding_source: str = "alphaearth"
+    ## Caps training tiles only (val stays full) -- for a real label-efficiency sweep
+    ## (RQ2), see scripts/label_efficiency_sweep.py, which sets this across several runs.
+    max_train_tiles: Optional[int] = None
+    ## Region bucketing for split_regions() and the training WeightedRandomSampler --
+    ## a tile counts as carrying building/water if its mean coverage exceeds this.
+    stratify_threshold: float = 0.01
+    ## Training-time sampling weight multiplier for tiles with building/water present
+    ## (see datamodule.Embed2HeightsDataModule) -- oversamples the rare classes each
+    ## epoch. Does not touch the loss itself; that's losses.py's bg_weight.
+    class_balance_boost: float = 3.0
+    ## Standardize embedding bands per-channel using scripts/compute_band_stats.py's
+    ## <data_root>/band_stats.json (train-split-only stats). Falls back to raw
+    ## (unstandardized) values with a printed warning if that file doesn't exist yet.
+    standardize_bands: bool = True
 
     # Model
     model_name: ModelNameEnum = ModelNameEnum.lightunet
@@ -37,7 +59,7 @@ class ExperimentConfig(BaseModel):
     
     # Training
     batch_size: int = 32
-    patch_size: int = 128
+    patch_size: int = 256
     num_workers: int = 4
     epochs: int = 30
     learning_rate: float = 2e-4
@@ -53,10 +75,34 @@ class ExperimentConfig(BaseModel):
     step_size: int = 30              # step
     gamma: float = 0.1               # step
 
-    # Loss weights [MAE, SSIM, Gradient, Tversky] — only MAE used until losses.py grows
-    lambdas: List[float] = [1.0, 0.5, 0.5, 2.0]
-    # Loss
-    loss_name:str = "mae"
+    # Loss: "mae" (plain L1 over all 4 channels, no weighting) | "weighted" (height +
+    # weighted-landcover, see losses.py -- Tversky/Dice was tried and rejected there,
+    # miscalibrated for continuous fraction targets; see the module docstring)
+    loss_name: str = "weighted"
+    ## height is the primary target (RQ1/RQ2); landcover is an auxiliary head (RQ3).
+    ## Set w_landcover=0.0 to ablate it -- that's the actual RQ3 comparison.
+    w_height: float = 1.0
+    w_landcover: float = 1.0 
+    ## Landcover channels are continuous sub-pixel fractions (verified against real
+    ## data), not discrete classes. Building/water are heavily imbalanced (~1-3% mean
+    ## coverage, ~70-75% of tiles near-zero) -- bg_weight downweights zero-label pixels
+    ## in the landcover L1 so they don't drown out the sparse foreground signal.
+    bg_weight: float = 0.05
+
+    # Evaluation thresholds -- decoupled on purpose: iou_threshold decides what counts
+    # as "present" for building/vegetation/water IoU; height_mask_threshold decides
+    # which pixels count toward rmse_building/rmse_vegetation. They used to be one
+    # shared value (changing one silently changed the other); same default (0.3) so
+    # splitting them didn't change existing behavior, just made it independently tunable.
+    iou_threshold: float = 0.5
+    height_mask_threshold: float = 0.5
+
+    # WandB logging -- off by default so tests/local runs never try to hit the network.
+    # Turn on per-experiment (YAML or --use_wandb) for real training runs.
+    use_wandb: bool = False
+    wandb_entity: str = "christine_muthee"
+    wandb_project: str = "emb2heights"
+
     ## Derived paths: everything lands under outputs/<experiment_name>/
     @property
     def experiment_dir(self) -> Path:
@@ -80,11 +126,19 @@ class ExperimentConfig(BaseModel):
 
     @property
     def height_curve_path(self) -> Path:
-        return self.experiment_dir / "height_rmse_vs_labels.png"
+        return self.experiment_dir / "height_rmse_vs_epochs.png"
+
+    @property
+    def height_confusion_path(self) -> Path:
+        return self.experiment_dir / "height_bin_confusion.png"
 
     @property
     def config_log_path(self) -> Path:
         return self.experiment_dir / "config.yaml"
+
+    @property
+    def class_distribution_path(self) -> Path:
+        return self.experiment_dir / "class_distribution.json"
 
     def make_dirs(self) -> None:
         self.viz_output_dir.mkdir(parents=True, exist_ok=True)
