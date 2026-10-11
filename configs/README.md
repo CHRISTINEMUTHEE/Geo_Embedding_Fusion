@@ -8,11 +8,17 @@ Configuration files are organized by research direction, with each sub-directory
 
 ```
 configs/
-├── 0_baselines/         # Initial baseline experiments
-├── 1_architectures/     # Testing different model architecturess
+├── 0_baselines/         # Per-source baselines (full data + data/subset smoke runs)
+├── 1_architectures/     # Testing different model architectures
 ├── 2_data_augmentation/ # Exploring augmentation strategies
 └── ...                  # Additional research directions
 ```
+
+`0_baselines/` currently (see that directory's README.md for the file-by-file list):
+
+- `01` / `02` — full-data LightUNet, legacy random split
+- `03`–`08` — DataModule on `data/subset/` (smoke)
+- `09`–`14` — DataModule on the full training split (`data/`, from `scripts/acquire.py`)
 
 ## Creating New Experiments
 

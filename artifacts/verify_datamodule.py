@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 """
-End-to-end check that the region-grouped DataModule loads training and validation patches.
+End-to-end check that the region-grouped DataModule loads training and validation patches,
+for any embedding source (pixel-aligned or patch-token).
 
 Prints numbers an agent can verify and writes a PNG a human can eyeball.
 
 Usage:
     python artifacts/verify_datamodule.py
-    python artifacts/verify_datamodule.py --root data/subset --n-samples 4
+    python artifacts/verify_datamodule.py --source tessera
+    python artifacts/verify_datamodule.py --source thor_s1 --patch-size 128 --scale-factor 16
 """
 import argparse
 import sys
@@ -20,7 +22,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from emb2heights.datamodule import Embed2HeightsDataModule, read_manifest  # noqa: E402
+from emb2heights.datamodule import Embed2HeightsDataModule, PATCH_SOURCES, read_manifest  # noqa: E402
 
 BANDS = ["building %", "vegetation %", "water %", "nDSM height"]
 
@@ -37,7 +39,7 @@ def pca_rgb(emb):
     return np.clip((rgb - lo) / np.maximum(hi - lo, 1e-6), 0, 1).transpose(1, 2, 0)
 
 
-def check_batch(name, loader, patch_size, failures):
+def check_batch(name, loader, expected_img_hw, expected_tar_hw, failures):
     x, y = next(iter(loader))
     print(f"\n[{name}] batch: image {tuple(x.shape)} {x.dtype} | target {tuple(y.shape)} {y.dtype}")
     print(f"  embedding range [{x.min():.3f}, {x.max():.3f}]  NaNs={int(torch.isnan(x).sum())}")
@@ -50,13 +52,17 @@ def check_batch(name, loader, patch_size, failures):
         if not cond:
             failures.append(f"{name}: {msg}")
 
-    chk(x.shape[2] == x.shape[3] == patch_size, f"image is {patch_size}x{patch_size}")
+    chk(tuple(x.shape[2:]) == expected_img_hw, f"image is {expected_img_hw[0]}x{expected_img_hw[1]}")
+    chk(tuple(y.shape[2:]) == expected_tar_hw, f"target is {expected_tar_hw[0]}x{expected_tar_hw[1]}")
     chk(y.shape[1] == 4, "target has 4 bands")
     chk(x.shape[0] == y.shape[0], "image/target batch sizes match")
     chk(int(torch.isnan(x).sum()) == 0 and int(torch.isnan(y).sum()) == 0, "no NaNs")
-    ## Dequantization fired: raw tiles are int8-valued (+/-127), so anything above ~2 means
-    ## the /127 rescale was skipped.
-    chk(float(x.abs().max()) <= 2.0, "embeddings dequantized to ~[-1, 1]")
+    ## Not asserting a specific dequantized range here: whether a source is quantized is
+    ## detected per-file (see TilePairDataset._looks_quantized), not assumed by source name.
+    ## Native scale genuinely varies a lot by source (e.g. THOR-S2 runs to ~+/-20000 vs
+    ## TerraMind's ~+/-17) -- 1e6 is loose enough to only catch a masking failure blowing up
+    ## the range (e.g. an unmasked -128 sentinel or an actual inf), not real embedding scale.
+    chk(float(x.abs().max()) < 1e6, "embedding values in a sane range (no runaway nodata)")
     chk(float(y[:, 3].max()) <= 1.5, "height normalized and clipped to <= 1.5")
     return x, y
 
@@ -64,14 +70,18 @@ def check_batch(name, loader, patch_size, failures):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--root", default="data/subset")
+    p.add_argument("--source", default="alphaearth")
     p.add_argument("--patch-size", type=int, default=128)
+    p.add_argument("--scale-factor", type=int, default=16,
+                   help="Only used for patch-token sources (see PATCH_SOURCES)")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--n-samples", type=int, default=3)
-    p.add_argument("--out", default="artifacts/output/samples.png")
+    p.add_argument("--out", default=None)
     args = p.parse_args()
 
     root = Path(args.root)
     failures = []
+    is_patch = args.source in PATCH_SOURCES
 
     all_rows = read_manifest(root / "manifest.csv", keep_only=False)
     kept = [r for r in all_rows if r["keep"]]
@@ -83,8 +93,17 @@ def main():
     shapes = {(int(r["height"]), int(r["width"])) for r in kept}
     print(f"  tile shapes present: {sorted(shapes)}")
 
-    dm = Embed2HeightsDataModule(root=root, patch_size=args.patch_size,
-                                 batch_size=args.batch_size).setup()
+    dm = Embed2HeightsDataModule(root=root, source=args.source, patch_size=args.patch_size,
+                                 batch_size=args.batch_size, scale_factor=args.scale_factor).setup()
+    print(f"\n=== source: {args.source} ({'patch-token, native res kept' if is_patch else 'pixel-aligned'}) ===")
+
+    if is_patch:
+        emb_hw = args.patch_size // args.scale_factor
+        expected_img_hw = (emb_hw, emb_hw)
+        expected_tar_hw = (emb_hw * args.scale_factor, emb_hw * args.scale_factor)
+    else:
+        expected_img_hw = (args.patch_size, args.patch_size)
+        expected_tar_hw = (args.patch_size, args.patch_size)
 
     print("\n=== region-grouped split ===")
     print(f"  train regions ({len(dm.train_regions)}): {dm.train_regions} -> {len(dm.train_ds)} tiles")
@@ -98,8 +117,8 @@ def main():
             failures.append(f"{nm} split is empty")
             print(f"  FAIL: {nm} split is empty")
 
-    xt, yt = check_batch("train", dm.train_dataloader(), args.patch_size, failures)
-    xv, yv = check_batch("val", dm.val_dataloader(), args.patch_size, failures)
+    xt, yt = check_batch("train", dm.train_dataloader(), expected_img_hw, expected_tar_hw, failures)
+    xv, yv = check_batch("val", dm.val_dataloader(), expected_img_hw, expected_tar_hw, failures)
 
     ## Val crop is deterministic; train crop is random.
     a, _ = dm.val_ds[0]
@@ -128,8 +147,8 @@ def main():
             for ax in axes[r]:
                 ax.set_xticks([])
                 ax.set_yticks([])
-    fig.suptitle("embed2heights: region-grouped train/val patches", fontsize=14)
-    out = Path(args.out)
+    fig.suptitle(f"embed2heights: region-grouped train/val patches ({args.source})", fontsize=14)
+    out = Path(args.out) if args.out else Path(f"artifacts/output/samples_{args.source}.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=110)
     print(f"\nwrote {out}")

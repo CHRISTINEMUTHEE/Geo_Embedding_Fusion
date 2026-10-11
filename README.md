@@ -35,11 +35,13 @@ What follows is a structured approach for developing your emb2heights project by
 
 ### 3. Prepare Your Environment
 
-* Sync the project environment with [uv](https://docs.astral.sh/uv/):
+This project uses [uv](https://docs.astral.sh/uv/). If a conda env is active, `conda deactivate` first.
 
 ```console
-$ uv sync
+$ uv sync --group dev
 ```
+
+That creates `.venv` (Python 3.12) with all project packages. Run commands with `uv run ...`, or `source .venv/bin/activate`. Add a library with `uv add <package>` (or `uv add --group dev <package>` for test/lint tools), then commit `pyproject.toml` and `uv.lock`.
 
 ### 4. Organize Your Data
 
@@ -54,19 +56,13 @@ $ uv sync
 * Train a baseline model:
 
 ```console
-$ uv run python scripts/train.py --config configs/0_baselines/01_alphaearth_lightunet.yaml
+$ uv run python scripts/train.py --config configs/0_baselines/09_alphaearth_datamodule.yaml
 ```
 
-* Evaluate the model:
+* Evaluate existing checkpoints (see `scripts/README.md`):
 
 ```console
-$ uv run python scripts/evaluate.py --model-path model_runs/experiment_name/best.ckpt --test-data path/to/test
-```
-
-* Analyze errors:
-
-```console
-$ uv run python scripts/analyze.py --model-path model_runs/experiment_name/best.ckpt --test-data path/to/test
+$ uv run python scripts/evaluate_sources.py --configs configs/0_baselines/03_alphaearth_subset_datamodule.yaml
 ```
 
 * Document results in your tracking sheet
@@ -122,13 +118,26 @@ same change (see `AGENTS.md` §7).
 │   ├── trainers.py     - Plain PyTorch training loop, metrics, visualization
 │   └── cli.py          - Command-line entry points
 ├── data/               - Local datasets (gitignored)
-│   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv
+│   ├── manifest.csv    - Full-split tile index written by scripts/acquire.py
+│   ├── band_stats.json - Per-source channel mean/std from compute_band_stats.py
+│   └── subset/         - <1% dev subset: inputs/, outputs/, manifest.csv, band_stats.json
 ├── scripts/            - Runnable scripts (train, evaluate, infer, acquire)
-│   ├── acquire.py      - Full dataset from EOTDL (110+ GB, needs login)
-│   └── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
+│   ├── acquire.py      - Full training split from the HF mirror (~110 GB)
+│   ├── acquire_subset.py - Region-balanced <1% subset from the public HF mirror
+│   ├── compute_band_stats.py - Per-source train-split channel mean/std -> band_stats.json
+│   └── report_class_distribution.py - Per-source/split building/vegetation/water coverage
 ├── tests/              - Unit tests (pytest, synthetic data, no real data needed)
 ├── configs/            - YAML experiment configs, organized by research direction
-│   └── data/           - Data-selection configs (which tiles, which sources)
+│   └── 0_baselines/    - Per-source LightUNet / EfficientEncoderDecoder YAMLs (full data + subset)
+├── slurm/              - Slurm job scripts for running on Unity (unity.rc.umass.edu)
+│   ├── env.sh          - Shared uv/cache/data-symlink setup for the jobs below
+│   ├── acquire.slurm   - CPU job: scripts/acquire.py onto /work
+│   ├── acquire_subset.slurm - CPU job: scripts/acquire_subset.py -> data/subset/
+│   ├── compute_band_stats.slurm - CPU job: train-split band_stats.json
+│   ├── train.slurm     - Single-GPU submission wrapper around scripts/train.py
+│   ├── eval.slurm      - Single-GPU wrapper around scripts/evaluate_sources.py
+│   ├── smoke.slurm     - 1-epoch train+eval pipeline check (does not clobber 09/11)
+│   └── sweep.slurm     - Single-GPU submission wrapper around label_efficiency_sweep.py
 ├── artifacts/          - Scripts that produce verifiable text/numerical artifacts
 ├── knowledge_base/     - Persistent research context (LLM wiki pattern; see SCHEMA.md)
 │   ├── sources/        - Immutable raw inputs (never modify)

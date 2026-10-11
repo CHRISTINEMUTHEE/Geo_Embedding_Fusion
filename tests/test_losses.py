@@ -5,8 +5,10 @@ from emb2heights.losses import build_loss
 
 
 def test_build_loss_is_mae():
+    ## loss_name defaults to "weighted" now (see config.py) -- request "mae" explicitly
+    ## to test the plain-L1 path this test is actually named for.
     cfg = ExperimentConfig(experiment_name="e", train_embeddings_dir="a",
-                           train_targets_dir="b")
+                           train_targets_dir="b", loss_name="mae")
     loss = build_loss(cfg)
     pred = torch.tensor([1.0, 3.0])
     true = torch.tensor([0.0, 1.0])

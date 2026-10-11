@@ -1,6 +1,9 @@
 __pycache__/
 *.py[cod]
-data/
+data
 outputs/
+wandb/
+slurm/logs/
 *.log
 .claude/
+.venv/

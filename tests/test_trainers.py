@@ -97,7 +97,11 @@ def test_evaluate_metrics_returns_all_keys(config):
     metrics = evaluate_metrics(model, val_loader, torch.device("cpu"),
                                config.height_normalization_constant)
     assert set(metrics) == {"iou_building", "iou_vegetation", "iou_water",
-                            "rmse_building", "rmse_vegetation"}
+                            "mae_height", "rmse_height",
+                            "rmse_building", "rmse_vegetation",
+                            "height_bin_accuracy", "height_bin_confusion",
+                            "height_bin_f1_low", "height_bin_f1_medium", "height_bin_f1_high",
+                            "height_bin_f1_macro"}
 
 
 # ---------------- end to end ----------------

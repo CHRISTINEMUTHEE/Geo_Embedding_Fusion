@@ -1,0 +1,90 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash",
+      "Edit",
+      "Write",
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Skill",
+      "ExitPlanMode",
+      "Bash(aws:*)",
+      "Bash(gcloud:*)",
+      "Bash(az:*)",
+      "Bash(pdflatex *)"
+    ],
+    "ask": [
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+
+      "Bash(docker push:*)",
+      "Bash(kubectl:*)",
+      "Bash(helm:*)",
+      "Bash(terraform:*)",
+      "Bash(pulumi:*)",
+
+      "Bash(npm publish:*)",
+      "Bash(twine upload:*)"
+    ],
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(visudo*)",
+      "Bash(passwd*)",
+      "Bash(chsh*)",
+
+      "Bash(*rm -rf*)",
+      "Bash(*rm -r -f*)",
+      "Bash(*rm -f -r*)",
+      "Bash(*mkfs*)",
+      "Bash(*dd if=*)",
+      "Bash(*fdisk*)",
+      "Bash(*parted*)",
+      "Bash(*diskutil*)",
+      "Bash(*shutdown*)",
+      "Bash(*reboot*)",
+      "Bash(*poweroff*)",
+      "Bash(*halt*)",
+
+      "Bash(*osascript*)",
+      "Bash(*screencapture*)",
+      "Bash(*networksetup*)",
+      "Bash(*systemsetup*)",
+      "Bash(*dscl*)",
+      "Bash(*security *)",
+      "Bash(*defaults write*)",
+      "Bash(*pmset*)",
+      "Bash(*launchctl*)",
+      "Bash(*spctl*)",
+      "Bash(*csrutil*)",
+      "Bash(*codesign*)",
+      "Bash(*hdiutil*)",
+      "Bash(*sysadminctl*)",
+      "Bash(*profiles *)",
+      "Bash(say *)",
+      "Bash(open -a *)",
+
+      "Bash(*curl*|*sh*)",
+      "Bash(*wget*|*sh*)",
+      "Bash(*curl*|*bash*)",
+      "Bash(*wget*|*bash*)",
+
+      "Bash(*az storage blob delete*)",
+      "Bash(*az storage container delete*)",
+      "Bash(*az storage account delete*)",
+      "Bash(*az ml job delete*)",
+      "Bash(*az ml compute delete*)",
+      "Bash(*az ml environment delete*)",
+      "Bash(*az ml datastore delete*)",
+      "Bash(*azcopy rm*)",
+      "Bash(*azcopy remove*)",
+
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(~/.config/gcloud/**)"
+    ]
+  },
+  "hooks": {}
+}
