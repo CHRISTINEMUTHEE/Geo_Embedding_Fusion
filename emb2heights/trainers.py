@@ -14,13 +14,14 @@ import matplotlib
 matplotlib.use("Agg")  # save figures without a display
 import matplotlib.pyplot as plt
 import numpy as np
-import seaborn as sns
 import torch
 import wandb
 from tqdm import tqdm
 
 
-from emb2heights.datamodule import Embed2HeightsDataModule, HEIGHT_BIN_EDGES, HEIGHT_BIN_NAMES
+from emb2heights.datamodule import (
+    Embed2HeightsDataModule, HEIGHT_BIN_EDGES, HEIGHT_BIN_NAMES, LABEL_CLASSES,
+)
 from emb2heights.datasets import build_dataloaders
 from emb2heights.losses import build_loss
 from emb2heights.models import build_model
@@ -269,7 +270,6 @@ def evaluate_metrics(model, val_loader, device, height_norm, iou_threshold=0.3, 
                               if (precision + recall) > 0 else 0.0)
         results[f"height_bin_f1_{name}"] = f1_per_class[name]
     results["height_bin_f1_macro"] = sum(f1_per_class.values()) / len(f1_per_class)
-    results["height_bin_confusion"] = height_bin_confusion.tolist()  # rows=true, cols=pred, order=HEIGHT_BIN_NAMES
     return results
 
 
@@ -326,22 +326,20 @@ def plot_height_rmse_vs_epoch(epochs, rmse_overall, rmse_building, rmse_vegetati
     plt.close(fig)
 
 
-## wandb.Table (already logged in train()) renders as a plain numeric grid in the
-## WandB UI, not a heatmap -- this is the actual visual confusion matrix. Normalized
-## by true-row (each row sums to 1) so color reads as per-class recall, annotated
-## with the raw pixel counts so the absolute scale isn't lost.
-def plot_height_bin_confusion(confusion, path):
-    confusion = np.asarray(confusion, dtype=np.float64)
-    row_sums = confusion.sum(axis=1, keepdims=True)
-    normalized = np.divide(confusion, row_sums, out=np.zeros_like(confusion), where=row_sums > 0)
-
-    fig, ax = plt.subplots(figsize=(5, 4.5))
-    sns.heatmap(normalized, annot=confusion.astype(np.int64), fmt="d", cmap="Blues",
-                vmin=0, vmax=1, xticklabels=HEIGHT_BIN_NAMES, yticklabels=HEIGHT_BIN_NAMES,
-                cbar_kws={"label": "row-normalized (recall)"}, ax=ax)
-    ax.set_xlabel("Predicted")
-    ax.set_ylabel("True")
-    ax.set_title("Height-bin confusion matrix")
+## One grouped bar per category (train=green, val=red) -- used for both the
+## height-bin and landcover-class distribution reports (see train()).
+def _plot_train_val_bars(categories, train_values, val_values, title, ylabel, path):
+    x = np.arange(len(categories))
+    width = 0.35
+    fig, ax = plt.subplots(figsize=(6, 4.5))
+    ax.bar(x - width / 2, train_values, width, label="train", color="tab:green")
+    ax.bar(x + width / 2, val_values, width, label="val", color="tab:red")
+    ax.set_xticks(x)
+    ax.set_xticklabels(categories)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(path)
     plt.close(fig)
@@ -415,20 +413,28 @@ def train(config, save_artifacts=True):
             json.dump(distributions, f, indent=2)
 
     run = _init_wandb(config) if config.use_wandb else None
-    if run is not None and distributions is not None:
-        ## Static (computed once at setup, not per epoch) -- logged at step 0.
-        flat = {}
-        for split, stats in distributions["class"].items():
-            for cls, s in stats.items():
-                for k, v in s.items():
-                    flat[f"data/class_{split}_{cls}_{k}"] = v
-        for split, stats in distributions["height_bins"].items():
-            for name, pct in stats.items():
-                flat[f"data/height_{split}_{name}"] = pct
-        wandb.log(flat, step=0)
-        if save_artifacts:
-            ## Raw file, not just the flattened scalars above -- visible/downloadable
-            ## from the run's Files tab.
+    if save_artifacts and distributions is not None:
+        ## One grouped bar chart each for height bins and landcover classes --
+        ## train vs val, static (computed once at setup, not per epoch).
+        _plot_train_val_bars(
+            HEIGHT_BIN_NAMES,
+            [distributions["height_bins"]["train"][n] for n in HEIGHT_BIN_NAMES],
+            [distributions["height_bins"]["val"][n] for n in HEIGHT_BIN_NAMES],
+            "Height-bin distribution (% of nonzero-height pixels)", "%",
+            config.height_distribution_plot_path)
+        _plot_train_val_bars(
+            LABEL_CLASSES,
+            [distributions["class"]["train"][c]["mean_frac"] for c in LABEL_CLASSES],
+            [distributions["class"]["val"][c]["mean_frac"] for c in LABEL_CLASSES],
+            "Class distribution (mean pixel fraction)", "mean fraction",
+            config.class_distribution_plot_path)
+        if run is not None:
+            wandb.log({
+                "data/height_bin_distribution": wandb.Image(str(config.height_distribution_plot_path)),
+                "data/class_distribution": wandb.Image(str(config.class_distribution_plot_path)),
+            }, step=0)
+            ## Raw file, not just the chart above -- visible/downloadable from the
+            ## run's Files tab.
             wandb.save(str(config.class_distribution_path))
 
     ## Infer input channels from the data (AlphaEarth=64, Tessera=128, ...)
@@ -477,12 +483,15 @@ def train(config, save_artifacts=True):
         print(f"  Height-as-classification: accuracy={metrics['height_bin_accuracy']:.3f} "
               f"macro-F1={metrics['height_bin_f1_macro']:.3f} "
               f"(F1 low/medium/high={metrics['height_bin_f1_low']:.3f}/"
-              f"{metrics['height_bin_f1_medium']:.3f}/{metrics['height_bin_f1_high']:.3f}) | "
-              f"confusion[true][pred]={metrics['height_bin_confusion']}")
+              f"{metrics['height_bin_f1_medium']:.3f}/{metrics['height_bin_f1_high']:.3f})")
 
         if run is not None:
-            wandb.log({"train/loss": train_loss, "val/loss": val_loss,
-                       **{f"val/{k}": v for k, v in metrics.items() if k != "height_bin_confusion"}},
+            ## One combined chart (train vs val) instead of two scalars living in
+            ## separate auto-grouped sections.
+            wandb.log({"loss": wandb.plot.line_series(
+                           xs=epochs_seen, ys=[train_losses, val_losses],
+                           keys=["train", "val"], title="Loss", xname="epoch"),
+                       **{f"val/{k}": v for k, v in metrics.items()}},
                       step=epoch)
 
         ## "Best" checkpoint = lowest overall (unmasked) height RMSE, not lowest val loss --
@@ -500,8 +509,7 @@ def train(config, save_artifacts=True):
         if epoch % 10 == 0:
             print("  Challenge-style evaluation:")
             for name, value in metrics.items():
-                if name != "height_bin_confusion":
-                    print(f"    {name}: {value:.4f}")
+                print(f"    {name}: {value:.4f}")
 
     if save_artifacts:
         torch.save(model.state_dict(), config.last_model_path)
@@ -518,16 +526,13 @@ def train(config, save_artifacts=True):
         plot_height_rmse_vs_epoch(epochs_seen, height_rmse_overall, height_rmse_building,
                                   height_rmse_vegetation, config.height_curve_path)
 
-        plot_height_bin_confusion(metrics["height_bin_confusion"], config.height_confusion_path)
-
         visualize_results(model, val_loader.dataset, config, device)
 
         if run is not None:
-            ## Re-logs the already-saved local PNGs -- generated once, uploaded once.
+            ## loss itself is already covered by the per-epoch "loss" line-series chart
+            ## above -- only re-log artifacts that don't already have a native WandB chart.
             wandb.log({
-                "train/loss_curve": wandb.Image(str(config.loss_curve_path)),
                 "val/height_rmse_curve": wandb.Image(str(config.height_curve_path)),
-                "val/height_bin_confusion_plot": wandb.Image(str(config.height_confusion_path)),
                 "val/sample_visualizations": [
                     wandb.Image(str(p)) for p in sorted(config.viz_output_dir.glob("visualization_*.png"))],
             })
@@ -537,12 +542,6 @@ def train(config, save_artifacts=True):
         print("Training complete (save_artifacts=False -- no checkpoints, plots, or visualizations written)")
 
     if run is not None:
-        ## Final epoch's confusion matrix only (per-epoch would be 100 tables for the
-        ## full-data configs) -- rows/cols both ordered HEIGHT_BIN_NAMES.
-        wandb.log({"val/height_bin_confusion": wandb.Table(
-            columns=[f"pred_{n}" for n in HEIGHT_BIN_NAMES],
-            data=metrics["height_bin_confusion"],
-        )})
         wandb.finish()
 
     return model, {"train_losses": train_losses, "val_losses": val_losses,
@@ -560,5 +559,4 @@ def train(config, save_artifacts=True):
                    "iou_vegetation": metrics["iou_vegetation"],
                    "iou_water": metrics["iou_water"],
                    "height_bin_accuracy": metrics["height_bin_accuracy"],
-                   "height_bin_f1_macro": metrics["height_bin_f1_macro"],
-                   "height_bin_confusion": metrics["height_bin_confusion"]}
+                   "height_bin_f1_macro": metrics["height_bin_f1_macro"]}

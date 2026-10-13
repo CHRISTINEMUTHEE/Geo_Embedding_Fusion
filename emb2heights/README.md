@@ -79,34 +79,42 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   (useful standalone, e.g. in tests) but `evaluate_metrics` uses `_mask_counts()` directly
   to accumulate instead. `iou_threshold` and `height_mask_threshold` are separate config
   fields — they used to be one shared `threshold`, so changing one silently changed the
-  other. `height_bin_accuracy`/`height_bin_f1_macro`/`height_bin_f1_{low,medium,high}`/
-  `height_bin_confusion` treat height as a 3-way classification problem
-  (`HEIGHT_BIN_NAMES`, see `datamodule.py`): both true and predicted height are binned,
-  then a `[true_bin, pred_bin]` confusion matrix is pooled across the whole val set the
-  same way IoU is (raw counts, not a per-batch average) before computing accuracy and
+  other. `height_bin_accuracy`/`height_bin_f1_macro`/`height_bin_f1_{low,medium,high}`
+  treat height as a 3-way classification problem (`HEIGHT_BIN_NAMES`, see
+  `datamodule.py`): both true and predicted height are binned, then a
+  `[true_bin, pred_bin]` confusion matrix is pooled across the whole val set the same
+  way IoU is (raw counts, not a per-batch average) before computing accuracy and
   per-class F1 directly from that pooled matrix (verified against `sklearn.metrics.f1_score`
-  — not used directly since it needs raw y_true/y_pred arrays, not pooled counts). Only
-  defined where `true_height > 0` — bare ground isn't a height class. Printed every
-  epoch during training and by `scripts/evaluate_sources.py` (confusion matrix as a
-  JSON string in its CSV, since a nested list isn't a CSV scalar), and logged to WandB
-  (`val/height_bin_*` scalars each epoch, final confusion matrix as both a `wandb.Table`
-  (raw counts) and a `wandb.Image` heatmap (`plot_height_bin_confusion`, row-normalized
-  color = per-class recall, annotated with raw counts) saved locally too, at
-  `config.height_confusion_path`).
+  — not used directly since it needs raw y_true/y_pred arrays, not pooled counts). The
+  confusion matrix itself is an internal detail of this computation only — not returned
+  by `evaluate_metrics`, not printed, not logged (tried as both a WandB table and a
+  heatmap image; dropped as more noise than signal — the four F1/accuracy scalars above
+  already summarize it). Only defined where `true_height > 0` — bare ground isn't a
+  height class. Printed every epoch during training and by `scripts/evaluate_sources.py`,
+  and logged to WandB as `val/height_bin_*` scalars each epoch.
   `train()` writes `class_distribution.json`
   (`config.class_distribution_path`) next to `config.yaml` with both the landcover
-  class distribution and the height-bin distribution, and (`config.use_wandb=True`,
-  needs `WANDB_API_KEY` in the environment — see `_init_wandb`) logs the same data plus
-  every per-epoch metric to WandB (`entity`/`project` from `config.wandb_entity`/
+  class distribution and the height-bin distribution, plus two grouped bar charts
+  (`_plot_train_val_bars`, train=green val=red) — `class_distribution_plot_path`
+  (x-axis `LABEL_CLASSES`, y-axis mean pixel fraction) and `height_distribution_plot_path`
+  (x-axis `HEIGHT_BIN_NAMES`, y-axis %% of nonzero-height pixels). `pct_tiles_present`
+  isn't charted (redundant with the Overview panel). `config.use_wandb=True` (needs
+  `WANDB_API_KEY` in the environment — see `_init_wandb`) logs both bar charts as
+  `data/class_distribution`/`data/height_bin_distribution` images at step 0, plus every
+  per-epoch metric, to WandB (`entity`/`project` from `config.wandb_entity`/
   `config.wandb_project`) — off by default so tests and local runs never touch the
-  network. Every other local artifact `train()` writes is also mirrored to WandB when
-  `use_wandb=True` (only if `save_artifacts=True` too, since these are re-logged from
-  the saved files, not regenerated): `loss_curve.png` → `train/loss_curve`,
+  network. Train and val loss share one chart (`wandb.plot.line_series`, key `"loss"`,
+  logged every epoch with the full history so far) instead of two scalars living in
+  separate auto-grouped WandB sections; `val/loss` is not logged separately since the
+  combined chart already carries it. Every other local artifact `train()` writes is also
+  mirrored to WandB when `use_wandb=True` (only if `save_artifacts=True` too, since these
+  are re-logged from the saved files, not regenerated):
   `height_rmse_vs_epochs.png` → `val/height_rmse_curve`, the sample true-vs-predicted
   maps from `visualize_results()` → `val/sample_visualizations` (one `wandb.Image` per
   sample), and `class_distribution.json` itself → uploaded raw via `wandb.save()`
-  (visible/downloadable from the run's Files tab, not just as the flattened `data/*`
-  scalars). `height_distribution()` collects true (and, given a model, predicted) height
+  (visible/downloadable from the run's Files tab, not just as the two bar-chart images).
+  `loss_curve.png` is still written locally but not re-uploaded to WandB — redundant
+  with the native interactive `"loss"` chart. `height_distribution()` collects true (and, given a model, predicted) height
   values over nonzero-height validation pixels across the *whole* loader (mean/median
   need pooled values, not a per-batch average) — used by `scripts/evaluate_sources.py`
   for a shared `baseline` row plus each source's own predicted mean/median, to catch
@@ -128,5 +136,6 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
 - New loss: implement in `losses.py` and return it from `build_loss`.
 
 Outputs of every run land in `outputs/<experiment_name>/`: `best_model.pth`,
-`last_model.pth`, `config.yaml` snapshot, `class_distribution.json`, `loss_curve.png`,
-`height_rmse_vs_epochs.png`, `height_bin_confusion.png`, `visualizations/`.
+`last_model.pth`, `config.yaml` snapshot, `class_distribution.json`,
+`class_distribution.png`, `height_bin_distribution.png`, `loss_curve.png`,
+`height_rmse_vs_epochs.png`, `visualizations/`.

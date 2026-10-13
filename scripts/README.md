@@ -146,10 +146,8 @@ outputs too, e.g. to inspect one budget's model or sample predictions.
 
 `evaluate_sources.py` loads each config's own `best_model.pth` (no training) and runs
 `evaluate_metrics()` (pooled IoU + height MAE/RMSE + height-as-classification
-accuracy/F1/confusion matrix, see `emb2heights/README.md`) on that config's own
-validation set, writing one row per source to a CSV. The confusion matrix is also
-printed per source and written as a JSON string (`height_bin_confusion_json` column —
-`json.loads()` it back to a list of lists). Configs with
+accuracy/F1, see `emb2heights/README.md`) on that config's own
+validation set, writing one row per source to a CSV. Configs with
 no checkpoint yet are skipped, not errored on. Only the validation set is used — the
 HF catalog's test split (`data/test/*_test_*_emb/`) is embeddings-only with no label
 assets, so there's nothing to locally score a test set against; the challenge scores

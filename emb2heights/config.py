@@ -129,8 +129,12 @@ class ExperimentConfig(BaseModel):
         return self.experiment_dir / "height_rmse_vs_epochs.png"
 
     @property
-    def height_confusion_path(self) -> Path:
-        return self.experiment_dir / "height_bin_confusion.png"
+    def height_distribution_plot_path(self) -> Path:
+        return self.experiment_dir / "height_bin_distribution.png"
+
+    @property
+    def class_distribution_plot_path(self) -> Path:
+        return self.experiment_dir / "class_distribution.png"
 
     @property
     def config_log_path(self) -> Path:
