@@ -1,0 +1,38 @@
+# Channel-fusion experiment: AlphaEarth (64ch) + Tessera (128ch), concatenated into
+# one 192ch tile by datamodule.FusedTileDataset -- see emb2heights/README.md and
+# datamodule.py for the design. Both sources are already pixel-aligned at 256x256
+# (no upsampling needed, unlike patch-token sources, which this does not support yet).
+# model_name=lightunet (not a dedicated fusion model): fused pixel-aligned channels
+# are just a wider n_channels input to the exact same architecture as the single-source
+# baselines (models.LightUNet already accepts arbitrary n_channels) -- reusing it keeps
+# architecture constant across single-source vs fused runs, so any difference in the
+# comparison is attributable to the fused input, not to also changing model capacity.
+# Compare against 03_alphaearth_subset_datamodule.yaml / 04_tessera_subset_datamodule.yaml
+# (same recipe, model, and data_root -- single source each).
+#
+# Smoke run on data/subset/ (same region-grouped split/recipe as the single-source
+# subset configs). patch_size=256, batch_size=4 matches those configs -- LightUNet's
+# activation memory is dominated by its internal channel widths (32->64->128->256),
+# not the input width, so 192ch vs 64/128ch input doesn't call for a smaller batch.
+experiment_name: "01_alphaearth_tessera_fusion_subset"
+data_root: "data/subset"
+embedding_source: "alphaearth_tessera_fusion"  # descriptive label only -- see fusion_sources below
+fusion_sources: ["alphaearth", "tessera"]
+
+model_name: "lightunet"
+n_classes: 4
+height_normalization_constant: 30.0
+
+batch_size: 4
+patch_size: 256
+num_workers: 4
+epochs: 2
+learning_rate: 2.0e-4
+weight_decay: 1.0e-4
+val_split: 0.3
+random_seed: 42
+
+optimizer: "adam"
+scheduler: "cosine"
+patience: 10
+factor: 0.1

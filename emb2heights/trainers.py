@@ -34,6 +34,7 @@ def build_train_val_loaders(config):
         dm = Embed2HeightsDataModule(
             root=config.data_root,
             source=config.embedding_source,
+            sources=config.fusion_sources,
             patch_size=config.patch_size,
             batch_size=config.batch_size,
             num_workers=config.num_workers,

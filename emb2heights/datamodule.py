@@ -131,6 +131,17 @@ def read_embedding_raw(path):
     return raw, valid
 
 
+## Dequantized -> nodata-zeroed -> (optionally) per-channel standardized. Pure
+## function, no dataset state -- shared by TilePairDataset._read_embedding (one
+## source, self.band_mean/std) and FusedTileDataset._resolve_image (one call per
+## source, each with ITS OWN mean/std, never a shared self.band_mean/std -- there's
+## no single "the" source in a fused tile to hold one).
+def _standardize(raw, valid, mean, std):
+    if mean is not None:
+        raw = (raw - mean[:, None, None]) / std[:, None, None]
+    return np.where(valid, raw, 0.0).astype(np.float32)
+
+
 # REVIEW REQUIRED
 class TilePairDataset(Dataset):
     """One 256x256 tile pair -> one cropped (embedding, target) sample."""
@@ -154,9 +165,14 @@ class TilePairDataset(Dataset):
 
     def _read_embedding(self, path):
         raw, valid = read_embedding_raw(path)
-        if self.band_mean is not None:
-            raw = (raw - self.band_mean[:, None, None]) / self.band_std[:, None, None]
-        return np.where(valid, raw, 0.0).astype(np.float32)
+        return _standardize(raw, valid, self.band_mean, self.band_std)
+
+    ## Seam between __getitem__'s row and _read_embedding's path -- lets
+    ## FusedTileDataset override just "which path(s) does this row resolve to"
+    ## without touching _read_embedding (so single-source behaviour can't regress)
+    ## or duplicating __getitem__'s pad/crop logic below.
+    def _resolve_image(self, row):
+        return self._read_embedding(self.root / row[f"{self.source}_path"])
 
     def _read_target(self, path):
         with rasterio.open(path) as s:
@@ -167,7 +183,7 @@ class TilePairDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.rows[idx]
-        image = self._read_embedding(self.root / row[f"{self.source}_path"])
+        image = self._resolve_image(row)
         target = self._read_target(self.root / row["label_path"])
 
         ## Tiles are not all 256x256 (255x256 also occurs); pad both to the crop size.
@@ -254,6 +270,41 @@ class LatentTokenDataset(TilePairDataset):
         return torch.from_numpy(image.copy()), torch.from_numpy(target.copy())
 
 
+# REVIEW REQUIRED
+class FusedTileDataset(TilePairDataset):
+    """Channel-concatenates N *pixel-aligned* sources (e.g. AlphaEarth + Tessera),
+    already on the same 256x256 grid -- no upsampling needed, unlike patch-token
+    sources (that fusion is unsolved; Embed2HeightsDataModule rejects it explicitly,
+    see setup()). Overrides only _resolve_image(); __getitem__'s pad/crop logic and
+    _read_embedding() (called once per source below, byte-for-byte unmodified) are
+    inherited as-is from TilePairDataset -- single-source training cannot regress
+    from this class existing.
+    """
+
+    def __init__(self, rows, root, sources, patch_size=128, is_train=True,
+                 height_norm=30.0, band_stats=None):
+        super().__init__(rows, root, source=None, patch_size=patch_size,
+                          is_train=is_train, height_norm=height_norm)
+        ## Channel order in the fused tensor = this list's order -- matters for
+        ## reproducibility/debugging (which channel range is which source), not
+        ## correctness.
+        self.sources = sources
+        ## {source_name: (mean, std)} -- each source standardized with ITS OWN
+        ## band stats (scripts/compute_band_stats.py), never a shared one.
+        self.band_stats = {
+            s: (np.asarray(m, dtype=np.float32), np.asarray(sd, dtype=np.float32))
+            for s, (m, sd) in (band_stats or {}).items()
+        }
+
+    def _resolve_image(self, row):
+        parts = []
+        for src in self.sources:
+            raw, valid = read_embedding_raw(self.root / row[f"{src}_path"])
+            mean, std = self.band_stats.get(src, (None, None))
+            parts.append(_standardize(raw, valid, mean, std))
+        return np.concatenate(parts, axis=0)
+
+
 ## Per-split, per-class summary -- how much of each split actually carries each
 ## label class. Used both by Embed2HeightsDataModule's setup() printout and
 ## scripts/report_class_distribution.py.
@@ -294,7 +345,7 @@ def summarize_height_distribution(rows, root):
 class Embed2HeightsDataModule:
     """Manifest -> region-grouped train/val loaders. Plain Python, no Lightning."""
 
-    def __init__(self, root, manifest=None, source="alphaearth", patch_size=128,
+    def __init__(self, root, manifest=None, source="alphaearth", sources=None, patch_size=128,
                  batch_size=8, num_workers=0, val_frac=0.3, seed=42, height_norm=30.0,
                  scale_factor=16, max_train_tiles=None, stratify_threshold=0.01,
                  class_balance_boost=3.0, standardize_bands=True, band_stats_path=None):
@@ -302,6 +353,11 @@ class Embed2HeightsDataModule:
         self.root = Path(root)
         self.manifest = Path(manifest) if manifest else self.root / "manifest.csv"
         self.source = source
+        ## Channel-fusion mode (pixel-aligned sources only -- see FusedTileDataset):
+        ## list of >=2 source names -> concatenate their channels into one tile.
+        ## None (default) -> ordinary single-source training, fully unaffected by
+        ## this parameter existing.
+        self.sources = sources
         self.patch_size = patch_size
         self.batch_size = batch_size
         self.num_workers = num_workers
@@ -332,8 +388,11 @@ class Embed2HeightsDataModule:
         self.height_distribution = {}
         self.train_sampler = None
 
-    def _load_band_stats(self):
+    ## source=None (default) -> self.source, preserving exact prior single-source
+    ## behaviour. Fusion's setup() passes each of self.sources through explicitly.
+    def _load_band_stats(self, source=None):
         import json
+        source = source or self.source
         if not self.standardize_bands:
             return None, None
         if not self.band_stats_path.exists():
@@ -342,21 +401,42 @@ class Embed2HeightsDataModule:
             return None, None
         with open(self.band_stats_path) as f:
             stats = json.load(f)
-        if self.source not in stats:
-            print(f"  band_stats.json has no entry for source={self.source!r} -- "
+        if source not in stats:
+            print(f"  band_stats.json has no entry for source={source!r} -- "
                   f"skipping standardization for this source")
             return None, None
-        return stats[self.source]["mean"], stats[self.source]["std"]
+        return stats[source]["mean"], stats[source]["std"]
 
     def setup(self):
         rows = read_manifest(self.manifest)
-        src_key = f"{self.source}_path"
-        rows = [r for r in rows if r.get("label_path") and r.get(src_key)]
-        if not rows:
-            raise ValueError(
-                f"No usable tiles in {self.manifest} for source={self.source} "
-                f"(need keep=True plus non-empty label_path and {src_key})"
-            )
+        if self.sources:
+            if len(self.sources) < 2:
+                raise ValueError(f"sources={self.sources!r} needs >=2 sources to fuse")
+            patch_sources = [s for s in self.sources if s in PATCH_SOURCES]
+            if patch_sources:
+                raise ValueError(
+                    f"Channel fusion with patch-token source(s) {patch_sources} is not "
+                    f"supported yet -- FusedTileDataset only handles pixel-aligned "
+                    f"sources, which are already on the same grid with no resolution "
+                    f"mismatch to resolve."
+                )
+            ## A tile is usable for fusion only if EVERY chosen source has it -- not
+            ## just one, unlike the single-source filter below.
+            rows = [r for r in rows
+                    if r.get("label_path") and all(r.get(f"{s}_path") for s in self.sources)]
+            if not rows:
+                raise ValueError(
+                    f"No usable tiles in {self.manifest} for fusion sources={self.sources} "
+                    f"(need keep=True, non-empty label_path, and every source's *_path)"
+                )
+        else:
+            src_key = f"{self.source}_path"
+            rows = [r for r in rows if r.get("label_path") and r.get(src_key)]
+            if not rows:
+                raise ValueError(
+                    f"No usable tiles in {self.manifest} for source={self.source} "
+                    f"(need keep=True plus non-empty label_path and {src_key})"
+                )
         self.train_regions, self.val_regions = split_regions(
             rows, self.val_frac, self.seed, self.stratify_threshold)
 
@@ -378,15 +458,21 @@ class Embed2HeightsDataModule:
         self.height_distribution = {"train": summarize_height_distribution(tr, self.root),
                                      "val": summarize_height_distribution(va, self.root)}
 
-        band_mean, band_std = self._load_band_stats()
-
-        kw = dict(root=self.root, source=self.source, patch_size=self.patch_size,
-                  height_norm=self.height_norm, band_mean=band_mean, band_std=band_std)
-        if self.source in PATCH_SOURCES:
-            dataset_cls = LatentTokenDataset
-            kw["scale_factor"] = self.scale_factor
+        if self.sources:
+            band_stats = {s: self._load_band_stats(source=s) for s in self.sources}
+            band_stats = {s: (m, sd) for s, (m, sd) in band_stats.items() if m is not None}
+            kw = dict(root=self.root, sources=self.sources, patch_size=self.patch_size,
+                      height_norm=self.height_norm, band_stats=band_stats)
+            dataset_cls = FusedTileDataset
         else:
-            dataset_cls = TilePairDataset
+            band_mean, band_std = self._load_band_stats()
+            kw = dict(root=self.root, source=self.source, patch_size=self.patch_size,
+                      height_norm=self.height_norm, band_mean=band_mean, band_std=band_std)
+            if self.source in PATCH_SOURCES:
+                dataset_cls = LatentTokenDataset
+                kw["scale_factor"] = self.scale_factor
+            else:
+                dataset_cls = TilePairDataset
         self.train_ds = dataset_cls(tr, is_train=True, **kw)
         self.val_ds = dataset_cls(va, is_train=False, **kw)
 

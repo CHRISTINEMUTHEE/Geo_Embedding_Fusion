@@ -35,6 +35,13 @@ class ExperimentConfig(BaseModel):
     # it dequantizes int8 embeddings and masks nodata honestly (see datamodule.py).
     data_root: Optional[str] = None
     embedding_source: str = "alphaearth"
+    ## Channel-fusion experiments only (pixel-aligned sources, e.g. AlphaEarth +
+    ## Tessera): list of >=2 source names to channel-concatenate into one tile --
+    ## see datamodule.FusedTileDataset. None (default) -> ordinary single-source
+    ## training via embedding_source above, completely unaffected by this field.
+    ## embedding_source still gets set (to a descriptive label, e.g.
+    ## "alphaearth_tessera_fusion") for logging/CSV rows even when this is set.
+    fusion_sources: Optional[list[str]] = None
     ## Caps training tiles only (val stays full) -- for a real label-efficiency sweep
     ## (RQ2), see scripts/label_efficiency_sweep.py, which sets this across several runs.
     max_train_tiles: Optional[int] = None

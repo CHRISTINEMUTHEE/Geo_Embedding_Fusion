@@ -200,8 +200,15 @@ class EfficientEncoderDecoder(nn.Module):
         x = self.up3(x)
         x = self.up4(x)
         return self.head(x)
+
+
 # REVIEW REQUIRED
 ## Factory: model choice from config, n_channels inferred from data by the caller.
+## Channel-fusion experiments (configs/1_fusion/) also use "lightunet" -- fused
+## pixel-aligned sources (datamodule.FusedTileDataset) are just a wider n_channels
+## input, nothing architecturally different, so reusing the same model as the
+## single-source baselines isolates "does fusion help" as the one real variable
+## instead of also changing capacity/depth.
 def build_model(config, n_channels):
     if config.model_name == "lightunet":
         return LightUNet(n_channels, config.n_classes)

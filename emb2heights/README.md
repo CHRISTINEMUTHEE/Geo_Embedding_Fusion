@@ -8,7 +8,12 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   paths as properties, `load_config()` for YAML + CLI overrides
 - `models.py`: model architectures (`LightUNet` for pixel-aligned sources, `EfficientEncoderDecoder`
   for 16x16 patch-token sources) and the `build_model(config, n_channels)` factory; input
-  channels are inferred from the data, not configured. `EfficientEncoderDecoder` is two regimes
+  channels are inferred from the data, not configured. Channel-fusion experiments
+  (`configs/1_fusion/`) also use `LightUNet` -- fused pixel-aligned sources (see
+  `datamodule.FusedTileDataset`) are just a wider `n_channels` input, nothing
+  architecturally different, so reusing the same model as the single-source baselines
+  isolates "does fusion help" as the one real variable instead of also changing
+  capacity/depth. `EfficientEncoderDecoder` is two regimes
   stitched together: a real encoder-decoder over the native 16x16 grid (16->8->4->8->16,
   with skip connections -- legitimate, since those intermediate feature maps genuinely
   exist), then blind progressive upsampling 16->32->64->128->256 (unavoidable for any
@@ -34,6 +39,18 @@ Core package: everything reusable across experiments. Plain PyTorch (no Lightnin
   at *different* resolutions on purpose, for a model that decodes tokens itself (the
   latent-based fusion `paper/research_questions.md` describes for those two sources, not
   LightUNet). `PATCH_SOURCES` selects which class a given `source=` name gets.
+  `FusedTileDataset` (also a `TilePairDataset` subclass, for `configs/1_fusion/`)
+  channel-concatenates >=2 *pixel-aligned* sources into one tile -- no upsampling
+  needed, since AlphaEarth/Tessera are already on the same 256x256 grid (unlike
+  `LatentTokenDataset`'s problem). Overrides only `_resolve_image()`, the seam
+  `TilePairDataset.__getitem__` calls instead of inlining the single-source path
+  lookup -- `_read_embedding()` itself (and all of `__getitem__`'s pad/crop logic) is
+  inherited byte-for-byte unmodified, so single-source training cannot regress from
+  this class existing. Each source is standardized with *its own* `band_stats.json`
+  entry, never a shared one. Channel-fusion with a `PATCH_SOURCES` member raises
+  explicitly (unsupported -- that needs an explicit upsample/crop strategy, a separate
+  problem). Driven by `Embed2HeightsDataModule(sources=[...])` (plural, alongside the
+  existing singular `source=`) / `config.fusion_sources`, not `embedding_source`.
   `max_train_tiles` caps *training* tiles only (val stays full) via a fixed-seed shuffle-
   then-slice, so smaller budgets are nested subsets of larger ones — the mechanism a real
   label-efficiency sweep needs (see `scripts/label_efficiency_sweep.py`). Use this module
